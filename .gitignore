@@ -1,0 +1,28 @@
+# Build artifacts
+bin/
+dist/
+backend/server
+
+# Frontend dependencies
+frontend/node_modules/
+frontend/dist/
+
+# Go build cache (keep go.sum tracked)
+backend/.cache/
+
+# SQLite data
+backend/data/
+backend/data/*.db
+backend/data/*.sqlite
+
+# Environment files
+.env
+backend/.env
+frontend/.env
+
+# Editor folders
+.vscode/
+.idea/
+
+# macOS
+.DS_Store

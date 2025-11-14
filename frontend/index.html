@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Study Tracker</title>
+    <link rel="stylesheet" href="assets/css/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <h1>Study Tracker</h1>
+        <p class="tagline">Log study sessions, visualize progress, stay consistent.</p>
+      </div>
+      <div class="app-nav-container" data-auth-visible="true">
+        <nav class="app-nav" role="tablist">
+          <button type="button" class="app-nav__btn active" data-view="dashboard" role="tab" aria-selected="true">
+            Dashboard
+          </button>
+          <button type="button" class="app-nav__btn" data-view="history" role="tab">
+            History
+          </button>
+          <button type="button" class="app-nav__btn" data-view="log" role="tab">
+            Log
+          </button>
+          <button type="button" class="app-nav__btn" data-view="trends" role="tab">
+            Trends
+          </button>
+        </nav>
+        <button type="button" class="secondary logout-btn" id="logout-btn">Logout</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="view" data-view="auth" aria-label="Authentication" data-auth-hidden="true">
+        <section class="card auth-card">
+          <div>
+            <h2>Welcome back</h2>
+            <p class="history-subtitle">Sign in to access your study analytics.</p>
+          </div>
+          <form id="login-form" class="auth-form">
+            <h3>Sign In</h3>
+            <label>
+              Email
+              <input type="email" id="login-email" required />
+            </label>
+            <label>
+              Password
+              <input type="password" id="login-password" required minlength="8" />
+            </label>
+            <button type="submit">Login</button>
+            <p id="login-error" class="form-message hidden"></p>
+            <button type="button" class="link-button" id="show-register-btn">
+              Don’t have an account? Sign up
+            </button>
+          </form>
+
+          <form id="register-form" class="auth-form hidden">
+            <h3>Create Account</h3>
+            <label>
+              Email
+              <input type="email" id="register-email" required />
+            </label>
+            <label>
+              Password
+              <input type="password" id="register-password" required minlength="8" />
+            </label>
+            <button type="submit">Register</button>
+            <p class="auth-note">Password must be at least 8 characters.</p>
+            <p id="register-error" class="form-message hidden"></p>
+            <button type="button" class="link-button" id="show-login-btn">
+              Already have an account? Sign in
+            </button>
+          </form>
+
+          <div class="auth-divider">
+            <span>or</span>
+          </div>
+          <button type="button" class="google-btn" id="google-login-btn">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
+            Continue with Google
+          </button>
+        </section>
+      </section>
+
+      <section class="view active" data-view="dashboard" aria-label="Dashboard">
+        <div class="layout layout-dashboard">
+          <section class="card live-track-card" aria-labelledby="live-track-title">
+            <div class="live-track-hero">
+              <h2 id="live-track-title">Live Track</h2>
+              <p class="live-track-subtitle">Tap start, stay focused, and let the tracker log the rest.</p>
+            </div>
+            <div class="live-track-circle" id="live-track-circle">
+              <button
+                type="button"
+                class="live-track-trigger"
+                id="live-track-trigger"
+                aria-pressed="false"
+                aria-expanded="false"
+              >
+                <span>Track Live</span>
+              </button>
+              <div class="live-track-timer-display hidden" id="live-track-timer-wrapper" aria-live="polite">
+                <span id="live-track-timer">00:00:00</span>
+              </div>
+            </div>
+            <p id="live-track-status" class="live-track-status">Tap Track Live to begin.</p>
+            <div class="live-track-mode hidden" id="live-track-mode">
+              <p class="live-track-mode-hint">Choose how you want to focus.</p>
+              <div class="live-track-mode-options">
+                <button type="button" data-live-track-mode="stopwatch">
+                  <strong>Stopwatch</strong>
+                  <span>Count up and log whenever you're done.</span>
+                </button>
+                <button type="button" data-live-track-mode="timer">
+                  <strong>Timer</strong>
+                  <span>Set a countdown and log at zero.</span>
+                </button>
+              </div>
+            </div>
+            <div class="live-track-setup hidden" id="live-track-setup">
+              <div class="live-track-setup-header">
+                <span class="live-track-selected-mode hidden" id="live-track-selected-mode">Stopwatch</span>
+                <button
+                  type="button"
+                  class="link-button live-track-change-mode hidden"
+                  id="live-track-change-mode"
+                >
+                  Change
+                </button>
+              </div>
+              <label>
+                Subject
+                <input
+                  type="text"
+                  id="live-track-subject"
+                  list="subjects"
+                  placeholder="Choose or create a subject"
+                  autocomplete="off"
+                  required
+                />
+              </label>
+              <label class="live-track-color">
+                Color
+                <input type="color" id="live-track-color" value="#6366f1" />
+              </label>
+              <label class="live-track-duration hidden" id="live-track-duration-wrapper">
+                Duration (minutes)
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  id="live-track-duration"
+                  value="25"
+                  placeholder="e.g. 25"
+                />
+              </label>
+              <button type="button" id="live-track-start">Start</button>
+            </div>
+            <div class="live-track-controls hidden" id="live-track-controls">
+              <button type="button" class="secondary" id="live-track-pause" disabled>Pause</button>
+              <button type="button" id="live-track-log" disabled>Log</button>
+            </div>
+            <p id="live-track-message" class="form-message hidden"></p>
+          </section>
+
+          <section class="card card-content" aria-labelledby="recent-title">
+            <div class="recent-header">
+              <div>
+                <h2 id="recent-title">Recent Sessions</h2>
+                <p class="recent-note">A quick view of your last five logs.</p>
+              </div>
+              <button type="button" class="link-button" id="view-history-btn">Open full history</button>
+            </div>
+            <ul id="sessions-list" class="sessions-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view="log" aria-label="Log Session & Subjects">
+        <div class="layout layout-log">
+          <section class="card card-form" aria-labelledby="sessions-title">
+            <h2 id="sessions-title">Log Study Session</h2>
+            <form id="session-form">
+          <label>
+            Subject
+            <input type="text" id="subject" list="subjects" placeholder="e.g. Math" required />
+            <datalist id="subjects"></datalist>
+          </label>
+
+          <label>
+            Start Time
+            <input type="datetime-local" id="start-time" required />
+          </label>
+
+          <label>
+            End Time
+            <input type="datetime-local" id="end-time" required />
+          </label>
+
+          <label>
+            Notes
+            <textarea id="notes" rows="3"></textarea>
+          </label>
+
+          <label>
+            Reflection
+            <input type="text" id="reflection" placeholder="How did it go?" />
+          </label>
+              <div class="form-actions">
+                <button type="submit" id="session-submit">Save Session</button>
+                <button type="button" id="session-cancel" class="secondary hidden">Cancel</button>
+              </div>
+              <p id="session-error" class="form-message hidden"></p>
+            </form>
+          </section>
+
+          <section class="card card-form" aria-labelledby="subjects-title">
+            <h2 id="subjects-title">Subjects</h2>
+            <form id="subject-form">
+              <input type="hidden" id="subject-id" />
+              <label>
+                Name
+                <input type="text" id="subject-name" placeholder="e.g. Mathematics" required />
+              </label>
+              <label>
+                Color
+                <input type="color" id="subject-color" value="#6366f1" />
+              </label>
+              <div class="form-actions">
+                <button type="submit" id="subject-submit">Add Subject</button>
+                <button type="button" id="subject-cancel" class="secondary hidden">Cancel</button>
+              </div>
+              <p id="subject-error" class="form-message hidden"></p>
+            </form>
+
+            <ul id="subjects-list" class="subjects-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view="history" aria-label="Study History">
+        <section class="card history-card">
+          <div class="history-header">
+            <div>
+              <h2>Session History</h2>
+              <p class="history-subtitle">Browse, filter, and revisit everything you've logged.</p>
+            </div>
+            <div class="history-filters">
+              <label>
+                Subject
+                <select id="history-subject-filter">
+                  <option value="all">All subjects</option>
+                </select>
+              </label>
+              <label>
+                From
+                <input type="date" id="history-start-date" />
+              </label>
+              <label>
+                To
+                <input type="date" id="history-end-date" />
+              </label>
+              <button type="button" id="history-clear-filters" class="secondary">Reset</button>
+            </div>
+          </div>
+
+          <div class="history-table-wrapper">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Duration</th>
+                  <th>Date</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="history-table-body">
+                <tr>
+                  <td colspan="4" class="history-empty">No sessions yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="trends" aria-label="Study Trends">
+        <section class="card chart-card">
+          <div class="chart-header">
+            <h2 id="charts-title">Study Trends</h2>
+            <p class="chart-subtitle">Visualize your focus across subjects and days.</p>
+          </div>
+          <div class="chart-container">
+            <h3>Time Spent per Subject</h3>
+            <canvas id="subject-chart" height="200"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Last 14 Days</h3>
+            <canvas id="trend-chart" height="200"></canvas>
+          </div>
+        </section>
+        <section class="card card-content" aria-labelledby="summary-title">
+          <h2 id="summary-title">Progress Summary</h2>
+          <div class="summary-grid">
+            <div class="summary-metric">
+              <span class="summary-label">Total Minutes</span>
+              <span class="summary-value" id="total-minutes">0</span>
+            </div>
+            <div class="summary-metric">
+              <span class="summary-label">Sessions Logged</span>
+              <span class="summary-value" id="session-count">0</span>
+            </div>
+            <div class="summary-metric">
+              <span class="summary-label">Average / Session</span>
+              <span class="summary-value" id="average-minutes">0.0</span>
+            </div>
+            <div class="summary-metric">
+              <span class="summary-label">Today</span>
+              <span class="summary-value" id="today-minutes">0</span>
+            </div>
+            <div class="summary-metric">
+              <span class="summary-label">This Week</span>
+              <span class="summary-value" id="week-minutes">0</span>
+            </div>
+            <div class="summary-metric">
+              <span class="summary-label">This Month</span>
+              <span class="summary-value" id="month-minutes">0</span>
+            </div>
+            <div class="summary-metric">
+              <span class="summary-label">Current Streak</span>
+              <span class="summary-value" id="streak-days">0</span>
+            </div>
+          </div>
+          <div class="summary-list">
+            <h3>Subject Breakdown</h3>
+            <div id="subject-breakdown" class="subject-breakdown"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="assets/js/app.js"></script>
+  </body>
+</html>
