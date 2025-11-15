@@ -19,10 +19,13 @@ import (
 func New(dsn string) (*fiber.App, error) {
 	app := fiber.New()
 
+	// Lightweight health endpoint used by deploy targets to verify liveness.
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.SendString("ok")
 	})
 
+	// Open a SQLite (or configured) connection and run migrations so the schema
+	// is always in sync before the server starts handling traffic.
 	db, err := database.Open(database.Config{DSN: dsn})
 	if err != nil {
 		return nil, err
@@ -33,6 +36,7 @@ func New(dsn string) (*fiber.App, error) {
 		return nil, err
 	}
 
+	// Repositories wrap SQL access, while the service layer enforces business rules.
 	sessionRepo := study.NewSQLSessionRepository(db)
 	subjectRepo := study.NewSQLSubjectRepository(db)
 	userRepo := user.NewSQLRepository(db)
@@ -57,12 +61,16 @@ func New(dsn string) (*fiber.App, error) {
 
 	handler.RegisterRoutes(publicAPI, authMiddleware.RequireAuth)
 
+	// This path is used by Google OAuth to land back in the backend.
 	app.Get("/oauth/callback", authHandler.GoogleCallbackHandler())
 
+	// Make sure the database connection is closed when Fiber shuts down.
 	app.Hooks().OnShutdown(func() error {
 		return db.Close()
 	})
 
+	// Serve the built frontend so the Go backend can host the entire app without
+	// needing a second process.
 	frontendDir, err := filepath.Abs("../frontend")
 	if err != nil {
 		db.Close()
@@ -89,6 +97,7 @@ func New(dsn string) (*fiber.App, error) {
 }
 
 func getenv(key, fallback string) string {
+	// Mirrors os.Getenv but allows us to inject sane defaults for local development.
 	if value, ok := os.LookupEnv(key); ok && value != "" {
 		return value
 	}
@@ -96,6 +105,7 @@ func getenv(key, fallback string) string {
 }
 
 func parseDuration(value string, fallback time.Duration) time.Duration {
+	// Time parsing can fail if misconfigured; fall back to a safe default.
 	if d, err := time.ParseDuration(value); err == nil {
 		return d
 	}

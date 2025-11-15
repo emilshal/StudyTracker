@@ -6,16 +6,22 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"studytracker/internal/platform/database"
 )
 
 // SQLSubjectRepository persists subjects to SQLite.
 type SQLSubjectRepository struct {
-	db *sql.DB
+	db        *sql.DB
+	useDollar bool
 }
 
 // NewSQLSubjectRepository returns a SubjectRepository backed by SQLite.
 func NewSQLSubjectRepository(db *sql.DB) *SQLSubjectRepository {
-	return &SQLSubjectRepository{db: db}
+	return &SQLSubjectRepository{
+		db:        db,
+		useDollar: database.UsesDollarPlaceholders(db),
+	}
 }
 
 func (r *SQLSubjectRepository) Create(subject Subject) (Subject, error) {
@@ -26,7 +32,7 @@ func (r *SQLSubjectRepository) Create(subject Subject) (Subject, error) {
 
 	_, err := r.db.ExecContext(
 		context.Background(),
-		query,
+		r.rebind(query),
 		subject.ID,
 		subject.UserID,
 		subject.Name,
@@ -50,7 +56,7 @@ func (r *SQLSubjectRepository) Update(subject Subject) (Subject, error) {
 
 	res, err := r.db.ExecContext(
 		context.Background(),
-		query,
+		r.rebind(query),
 		subject.Name,
 		nullIfEmpty(subject.Color),
 		subject.UpdatedAt.UTC(),
@@ -75,7 +81,7 @@ func (r *SQLSubjectRepository) Update(subject Subject) (Subject, error) {
 func (r *SQLSubjectRepository) Delete(userID, id string) error {
 	const query = `DELETE FROM subjects WHERE id = ? AND user_id = ?;`
 
-	res, err := r.db.ExecContext(context.Background(), query, id, userID)
+	res, err := r.db.ExecContext(context.Background(), r.rebind(query), id, userID)
 	if err != nil {
 		return err
 	}
@@ -96,10 +102,10 @@ func (r *SQLSubjectRepository) List(userID string) ([]Subject, error) {
 		SELECT id, user_id, name, color, created_at, updated_at
 		FROM subjects
 		WHERE user_id = ?
-		ORDER BY name COLLATE NOCASE ASC;
+		ORDER BY LOWER(name) ASC;
 	`
 
-	rows, err := r.db.QueryContext(context.Background(), query, userID)
+	rows, err := r.db.QueryContext(context.Background(), r.rebind(query), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +154,7 @@ func (r *SQLSubjectRepository) Get(userID, id string) (Subject, error) {
 	var subject Subject
 	var color sql.NullString
 	var created, updated time.Time
-	err := r.db.QueryRowContext(context.Background(), query, id, userID).Scan(
+	err := r.db.QueryRowContext(context.Background(), r.rebind(query), id, userID).Scan(
 		&subject.ID,
 		&subject.UserID,
 		&subject.Name,
@@ -176,13 +182,13 @@ func (r *SQLSubjectRepository) GetByName(userID, name string) (Subject, error) {
 	const query = `
 		SELECT id, user_id, name, color, created_at, updated_at
 		FROM subjects
-		WHERE user_id = ? AND name = ? COLLATE NOCASE;
+		WHERE user_id = ? AND LOWER(name) = LOWER(?);
 	`
 
 	var subject Subject
 	var color sql.NullString
 	var created, updated time.Time
-	err := r.db.QueryRowContext(context.Background(), query, userID, name).Scan(
+	err := r.db.QueryRowContext(context.Background(), r.rebind(query), userID, name).Scan(
 		&subject.ID,
 		&subject.UserID,
 		&subject.Name,
@@ -213,5 +219,12 @@ func mapSubjectError(err error) error {
 	if strings.Contains(err.Error(), "UNIQUE constraint failed: subjects.name") {
 		return ErrSubjectNameExists
 	}
+	if strings.Contains(err.Error(), "duplicate key value") && strings.Contains(err.Error(), "subjects_name") {
+		return ErrSubjectNameExists
+	}
 	return err
+}
+
+func (r *SQLSubjectRepository) rebind(query string) string {
+	return database.Rebind(query, r.useDollar)
 }

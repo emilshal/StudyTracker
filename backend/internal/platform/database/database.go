@@ -13,29 +13,33 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// Config captures the configuration required to connect to SQLite.
+// Config captures the configuration required to connect to a SQL database.
 type Config struct {
 	DSN string
 }
 
-// Open creates a SQLite connection using the provided configuration.
+// Open creates a database connection. The driver is inferred from the DSN.
 func Open(cfg Config) (*sql.DB, error) {
 	dsn := cfg.DSN
 	if dsn == "" {
 		dsn = "file:data/studytracker.db?_pragma=foreign_keys(ON)"
 	}
 
-	if err := ensureDirectory(dsn); err != nil {
-		return nil, err
+	driver := detectDriver(dsn)
+	if driver == "sqlite" {
+		if err := ensureDirectory(dsn); err != nil {
+			return nil, err
+		}
 	}
 
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +57,8 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("database connection is nil")
 	}
+
+	useDollar := UsesDollarPlaceholders(db)
 
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -79,7 +85,8 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 		name := entry.Name()
 
 		var count int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM schema_migrations WHERE name = ?`, name).Scan(&count); err != nil {
+		query := Rebind("SELECT COUNT(1) FROM schema_migrations WHERE name = ?", useDollar)
+		if err := db.QueryRowContext(ctx, query, name).Scan(&count); err != nil {
 			return fmt.Errorf("check migration %s: %w", name, err)
 		}
 		if count > 0 {
@@ -101,7 +108,8 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, name, time.Now().UTC()); err != nil {
+		insert := Rebind("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)", useDollar)
+		if _, err := tx.ExecContext(ctx, insert, name, time.Now().UTC()); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("record migration %s: %w", name, err)
 		}
@@ -136,4 +144,41 @@ func ensureDirectory(dsn string) error {
 	}
 
 	return os.MkdirAll(filepath.Dir(dsn), 0o755)
+}
+
+func detectDriver(dsn string) string {
+	lower := strings.ToLower(dsn)
+	switch {
+	case strings.HasPrefix(lower, "postgres://"), strings.HasPrefix(lower, "postgresql://"):
+		return "postgres"
+	default:
+		return "sqlite"
+	}
+}
+
+// UsesDollarPlaceholders reports whether the active SQL driver expects $1-style placeholders.
+func UsesDollarPlaceholders(db *sql.DB) bool {
+	driverName := fmt.Sprintf("%T", db.Driver())
+	return strings.Contains(driverName, "pq")
+}
+
+// Rebind rewrites a query that uses ? placeholders into the driver-specific format.
+func Rebind(query string, useDollar bool) string {
+	if !useDollar {
+		return query
+	}
+	var (
+		builder strings.Builder
+		index   = 1
+	)
+	builder.Grow(len(query) + 10)
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			builder.WriteString(fmt.Sprintf("$%d", index))
+			index++
+			continue
+		}
+		builder.WriteByte(query[i])
+	}
+	return builder.String()
 }

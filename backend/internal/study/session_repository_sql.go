@@ -5,16 +5,22 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"studytracker/internal/platform/database"
 )
 
 // SQLSessionRepository persists study sessions to SQLite.
 type SQLSessionRepository struct {
-	db *sql.DB
+	db        *sql.DB
+	useDollar bool
 }
 
 // NewSQLSessionRepository returns a SessionRepository backed by SQLite.
 func NewSQLSessionRepository(db *sql.DB) *SQLSessionRepository {
-	return &SQLSessionRepository{db: db}
+	return &SQLSessionRepository{
+		db:        db,
+		useDollar: database.UsesDollarPlaceholders(db),
+	}
 }
 
 func (r *SQLSessionRepository) Create(session StudySession) (StudySession, error) {
@@ -27,7 +33,7 @@ func (r *SQLSessionRepository) Create(session StudySession) (StudySession, error
 
 	_, err := r.db.ExecContext(
 		context.Background(),
-		query,
+		r.rebind(query),
 		session.ID,
 		session.UserID,
 		session.SubjectID,
@@ -57,7 +63,7 @@ func (r *SQLSessionRepository) Update(session StudySession) (StudySession, error
 
 	res, err := r.db.ExecContext(
 		context.Background(),
-		query,
+		r.rebind(query),
 		session.SubjectID,
 		session.Subject,
 		nullIfEmpty(session.Notes),
@@ -87,7 +93,7 @@ func (r *SQLSessionRepository) Update(session StudySession) (StudySession, error
 func (r *SQLSessionRepository) Delete(userID, id string) error {
 	const query = `DELETE FROM study_sessions WHERE id = ? AND user_id = ?;`
 
-	res, err := r.db.ExecContext(context.Background(), query, id, userID)
+	res, err := r.db.ExecContext(context.Background(), r.rebind(query), id, userID)
 	if err != nil {
 		return err
 	}
@@ -112,7 +118,7 @@ func (r *SQLSessionRepository) List(userID string) ([]StudySession, error) {
 		ORDER BY start_time DESC;
 	`
 
-	rows, err := r.db.QueryContext(context.Background(), query, userID)
+	rows, err := r.db.QueryContext(context.Background(), r.rebind(query), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +166,10 @@ func (r *SQLSessionRepository) List(userID string) ([]StudySession, error) {
 	}
 
 	return sessions, nil
+}
+
+func (r *SQLSessionRepository) rebind(query string) string {
+	return database.Rebind(query, r.useDollar)
 }
 
 func nullIfEmpty(value string) sql.NullString {

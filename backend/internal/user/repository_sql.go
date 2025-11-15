@@ -3,16 +3,22 @@ package user
 import (
 	"context"
 	"database/sql"
+
+	"studytracker/internal/platform/database"
 )
 
 // SQLRepository persists users to SQLite.
 type SQLRepository struct {
-	db *sql.DB
+	db        *sql.DB
+	useDollar bool
 }
 
 // NewSQLRepository constructs a user repository backed by SQLite.
 func NewSQLRepository(db *sql.DB) *SQLRepository {
-	return &SQLRepository{db: db}
+	return &SQLRepository{
+		db:        db,
+		useDollar: database.UsesDollarPlaceholders(db),
+	}
 }
 
 func (r *SQLRepository) Create(user User) (User, error) {
@@ -22,7 +28,7 @@ func (r *SQLRepository) Create(user User) (User, error) {
 	`
 	_, err := r.db.ExecContext(
 		context.Background(),
-		query,
+		r.rebind(query),
 		user.ID,
 		user.Email,
 		user.PasswordHash,
@@ -46,7 +52,7 @@ func (r *SQLRepository) Update(user User) (User, error) {
 
 	res, err := r.db.ExecContext(
 		context.Background(),
-		query,
+		r.rebind(query),
 		user.Email,
 		user.PasswordHash,
 		user.Provider,
@@ -73,7 +79,7 @@ func (r *SQLRepository) GetByEmail(email string) (User, error) {
 	const query = `
 		SELECT id, email, password_hash, provider, provider_id, created_at, updated_at
 		FROM users
-		WHERE email = ? COLLATE NOCASE;
+		WHERE LOWER(email) = LOWER(?);
 	`
 	return r.getOne(query, email)
 }
@@ -102,7 +108,7 @@ func (r *SQLRepository) getOne(query string, args ...interface{}) (User, error) 
 		created sql.NullTime
 		updated sql.NullTime
 	)
-	err := r.db.QueryRowContext(context.Background(), query, args...).Scan(
+	err := r.db.QueryRowContext(context.Background(), r.rebind(query), args...).Scan(
 		&u.ID,
 		&u.Email,
 		&u.PasswordHash,
@@ -122,4 +128,8 @@ func (r *SQLRepository) getOne(query string, args ...interface{}) (User, error) 
 		u.UpdatedAt = updated.Time.UTC()
 	}
 	return u, nil
+}
+
+func (r *SQLRepository) rebind(query string) string {
+	return database.Rebind(query, r.useDollar)
 }

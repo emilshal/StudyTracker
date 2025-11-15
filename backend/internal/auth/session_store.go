@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"studytracker/internal/platform/database"
 )
 
 // Session represents a persisted login session.
@@ -25,12 +27,16 @@ type SessionStore interface {
 
 // SQLSessionStore implements SessionStore using SQLite.
 type SQLSessionStore struct {
-	db *sql.DB
+	db        *sql.DB
+	useDollar bool
 }
 
 // NewSQLSessionStore creates a store backed by SQLite.
 func NewSQLSessionStore(db *sql.DB) *SQLSessionStore {
-	return &SQLSessionStore{db: db}
+	return &SQLSessionStore{
+		db:        db,
+		useDollar: database.UsesDollarPlaceholders(db),
+	}
 }
 
 func (s *SQLSessionStore) Create(userID string, ttl time.Duration) (Session, error) {
@@ -47,7 +53,7 @@ func (s *SQLSessionStore) Create(userID string, ttl time.Duration) (Session, err
     `
 	_, err := s.db.ExecContext(
 		context.Background(),
-		query,
+		s.rebind(query),
 		session.ID,
 		session.UserID,
 		session.ExpiresAt,
@@ -66,7 +72,7 @@ func (s *SQLSessionStore) Get(id string) (Session, error) {
         WHERE id = ?;
     `
 	var session Session
-	if err := s.db.QueryRowContext(context.Background(), query, id).Scan(
+	if err := s.db.QueryRowContext(context.Background(), s.rebind(query), id).Scan(
 		&session.ID,
 		&session.UserID,
 		&session.ExpiresAt,
@@ -79,6 +85,10 @@ func (s *SQLSessionStore) Get(id string) (Session, error) {
 
 func (s *SQLSessionStore) Delete(id string) error {
 	const query = `DELETE FROM sessions WHERE id = ?;`
-	_, err := s.db.ExecContext(context.Background(), query, id)
+	_, err := s.db.ExecContext(context.Background(), s.rebind(query), id)
 	return err
+}
+
+func (s *SQLSessionStore) rebind(query string) string {
+	return database.Rebind(query, s.useDollar)
 }

@@ -5,6 +5,8 @@ go 1.23.1
 require (
 	github.com/gofiber/fiber/v2 v2.52.9
 	github.com/google/uuid v1.6.0
+	github.com/joho/godotenv v1.5.1
+	github.com/lib/pq v1.10.9
 	golang.org/x/crypto v0.22.0
 	golang.org/x/oauth2 v0.17.0
 	modernc.org/sqlite v1.23.1
@@ -16,7 +18,6 @@ require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
