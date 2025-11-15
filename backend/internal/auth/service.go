@@ -178,16 +178,7 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code string) (AuthRe
 	u, err := s.users.GetByProvider("google", providerID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			now := time.Now().UTC()
-			newUser := user.User{
-				ID:         uuid.NewString(),
-				Email:      email,
-				Provider:   "google",
-				ProviderID: providerID,
-				CreatedAt:  now,
-				UpdatedAt:  now,
-			}
-			u, err = s.users.Create(newUser)
+			u, err = s.upsertGoogleUser(email, providerID)
 			if err != nil {
 				return AuthResult{}, err
 			}
@@ -236,4 +227,28 @@ func (s *Service) fetchGoogleUser(ctx context.Context, token *oauth2.Token) (ema
 
 func normalizeEmail(email string) string {
 	return strings.TrimSpace(strings.ToLower(email))
+}
+
+func (s *Service) upsertGoogleUser(email, providerID string) (user.User, error) {
+	if email != "" {
+		if existing, err := s.users.GetByEmail(email); err == nil {
+			existing.Provider = "google"
+			existing.ProviderID = providerID
+			existing.UpdatedAt = time.Now().UTC()
+			return s.users.Update(existing)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return user.User{}, err
+		}
+	}
+
+	now := time.Now().UTC()
+	newUser := user.User{
+		ID:         uuid.NewString(),
+		Email:      email,
+		Provider:   "google",
+		ProviderID: providerID,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	return s.users.Create(newUser)
 }
