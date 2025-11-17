@@ -14,14 +14,16 @@ type Handler struct {
 	service     *Service
 	cookieName  string
 	frontendURL string
+	redirectURL string
 }
 
 // NewHandler creates an auth handler.
-func NewHandler(service *Service, frontendURL string) *Handler {
+func NewHandler(service *Service, frontendURL string, redirectURL string) *Handler {
 	return &Handler{
 		service:     service,
 		cookieName:  "session_token",
 		frontendURL: frontendURL,
+		redirectURL: strings.TrimSpace(redirectURL),
 	}
 }
 
@@ -31,8 +33,8 @@ func (h *Handler) RegisterRoutes(router fiber.Router, requireAuth fiber.Handler)
 	router.Post("/register", h.register)
 	router.Post("/login", h.login)
 	router.Post("/logout", h.logout)
-	router.Get("/google/login", h.googleLogin)
-	router.Get("/google/callback", h.googleCallback)
+	router.Get("/google/login", h.googleDisabled)
+	router.Get("/google/callback", h.googleDisabled)
 
 	router.Get("/me", requireAuth, h.me)
 }
@@ -103,7 +105,13 @@ func (h *Handler) googleLogin(c *fiber.Ctx) error {
 	}
 	h.setStateCookie(c, state)
 
-	url := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	redirectURL := h.resolveRedirectURL(c)
+	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOffline}
+	if redirectURL != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("redirect_uri", redirectURL))
+	}
+
+	url := cfg.AuthCodeURL(state, opts...)
 	return c.JSON(fiber.Map{"url": url})
 }
 
@@ -124,7 +132,8 @@ func (h *Handler) googleCallback(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "missing code")
 	}
 
-	result, err := h.service.HandleGoogleCallback(c.Context(), code)
+	redirectURL := h.resolveRedirectURL(c)
+	result, err := h.service.HandleGoogleCallback(c.Context(), code, redirectURL)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
 	}
@@ -137,6 +146,10 @@ func (h *Handler) googleCallback(c *fiber.Ctx) error {
 		redirectTarget = "/"
 	}
 	return c.Redirect(redirectTarget, http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) googleDisabled(c *fiber.Ctx) error {
+	return fiber.NewError(fiber.StatusNotImplemented, "google login disabled")
 }
 
 func (h *Handler) setAuthCookie(c *fiber.Ctx, session Session) {
@@ -188,4 +201,23 @@ func (h *Handler) clearStateCookie(c *fiber.Ctx) {
 // GoogleCallbackHandler exposes the callback handler for alternate routes.
 func (h *Handler) GoogleCallbackHandler() fiber.Handler {
 	return h.googleCallback
+}
+
+func (h *Handler) resolveRedirectURL(c *fiber.Ctx) string {
+	requestBase := strings.TrimSuffix(c.BaseURL(), "/")
+	if strings.Contains(requestBase, "localhost") || strings.Contains(requestBase, "127.0.0.1") {
+		return requestBase + "/oauth/callback"
+	}
+
+	frontendBase := strings.TrimSuffix(h.frontendURL, "/")
+	if frontendBase != "" {
+		return frontendBase + "/oauth/callback"
+	}
+	if h.redirectURL != "" {
+		return h.redirectURL
+	}
+	if requestBase != "" {
+		return requestBase + "/oauth/callback"
+	}
+	return ""
 }

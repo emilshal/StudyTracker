@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -85,19 +86,24 @@ func (s *Service) Register(email, password string) (AuthResult, error) {
 		return AuthResult{}, err
 	}
 
+	now := time.Now().UTC()
+	verifiedAt := now
 	user := user.User{
 		ID:           uuid.NewString(),
 		Email:        email,
 		PasswordHash: string(hash),
 		Provider:     "local",
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		IsVerified:   true,
+		VerifiedAt:   &verifiedAt,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	created, err := s.users.Create(user)
 	if err != nil {
 		return AuthResult{}, err
 	}
+	log.Printf("created user id=%s email=%s provider=%s", created.ID, created.Email, created.Provider)
 
 	session, err := s.sessions.Create(created.ID, s.sessionTTL)
 	if err != nil {
@@ -116,14 +122,17 @@ func (s *Service) Login(email, password string) (AuthResult, error) {
 
 	u, err := s.users.GetByEmail(email)
 	if err != nil {
+		log.Printf("login failed lookup email=%s: %v", email, err)
 		return AuthResult{}, errors.New("invalid credentials")
 	}
 
 	if u.Provider != "local" {
+		log.Printf("login failed email=%s uses provider=%s", email, u.Provider)
 		return AuthResult{}, errors.New("account uses federated login")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+		log.Printf("login failed bcrypt mismatch email=%s", email)
 		return AuthResult{}, errors.New("invalid credentials")
 	}
 
@@ -160,12 +169,17 @@ func (s *Service) GenerateOAuthState() (string, error) {
 }
 
 // HandleGoogleCallback exchanges the code for tokens and signs in the user.
-func (s *Service) HandleGoogleCallback(ctx context.Context, code string) (AuthResult, error) {
+func (s *Service) HandleGoogleCallback(ctx context.Context, code string, redirectURI string) (AuthResult, error) {
 	if s.oauthConfig == nil {
 		return AuthResult{}, errors.New("google auth not configured")
 	}
 
-	token, err := s.oauthConfig.Exchange(ctx, code)
+	opts := []oauth2.AuthCodeOption{}
+	if redirectURI != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("redirect_uri", redirectURI))
+	}
+
+	token, err := s.oauthConfig.Exchange(ctx, code, opts...)
 	if err != nil {
 		return AuthResult{}, fmt.Errorf("exchange failed: %w", err)
 	}
@@ -234,7 +248,10 @@ func (s *Service) upsertGoogleUser(email, providerID string) (user.User, error) 
 		if existing, err := s.users.GetByEmail(email); err == nil {
 			existing.Provider = "google"
 			existing.ProviderID = providerID
-			existing.UpdatedAt = time.Now().UTC()
+			now := time.Now().UTC()
+			existing.IsVerified = true
+			existing.VerifiedAt = &now
+			existing.UpdatedAt = now
 			return s.users.Update(existing)
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			return user.User{}, err
@@ -242,11 +259,14 @@ func (s *Service) upsertGoogleUser(email, providerID string) (user.User, error) 
 	}
 
 	now := time.Now().UTC()
+	verifiedAt := now
 	newUser := user.User{
 		ID:         uuid.NewString(),
 		Email:      email,
 		Provider:   "google",
 		ProviderID: providerID,
+		IsVerified: true,
+		VerifiedAt: &verifiedAt,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}

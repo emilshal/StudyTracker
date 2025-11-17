@@ -49,7 +49,7 @@ func New(dsn string) (*fiber.App, error) {
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 	})
-	authHandler := auth.NewHandler(authService, getenv("FRONTEND_URL", ""))
+	authHandler := auth.NewHandler(authService, getenv("FRONTEND_URL", ""), os.Getenv("GOOGLE_REDIRECT_URL"))
 	authMiddleware := auth.NewMiddleware(sessionStore)
 
 	service := study.NewService(sessionRepo, subjectRepo)
@@ -60,9 +60,6 @@ func New(dsn string) (*fiber.App, error) {
 	authHandler.RegisterRoutes(authGroup, authMiddleware.RequireAuth)
 
 	handler.RegisterRoutes(publicAPI, authMiddleware.RequireAuth)
-
-	// This path is used by Google OAuth to land back in the backend.
-	app.Get("/oauth/callback", authHandler.GoogleCallbackHandler())
 
 	// Make sure the database connection is closed when Fiber shuts down.
 	app.Hooks().OnShutdown(func() error {

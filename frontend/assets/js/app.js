@@ -486,12 +486,17 @@ async function handleLiveTrackLog() {
   const wasRunning = liveTrackState.status === "running";
   captureLiveTrackElapsed();
   clearLiveTrackInterval();
+  if (wasRunning) {
+    liveTrackState.status = "paused";
+  }
+  updateLiveTrackUI();
 
   const totalMs = getLiveTrackElapsedMs();
   if (totalMs < LIVE_TRACK_MIN_MS) {
     showMessage(liveTrackMessageEl, "Track at least one minute before saving.");
     if (wasRunning) {
       liveTrackState.startedAt = Date.now();
+      liveTrackState.status = "running";
       startLiveTrackInterval();
     }
     updateLiveTrackUI();

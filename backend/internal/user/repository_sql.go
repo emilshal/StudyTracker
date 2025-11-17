@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"studytracker/internal/platform/database"
 )
@@ -23,8 +24,8 @@ func NewSQLRepository(db *sql.DB) *SQLRepository {
 
 func (r *SQLRepository) Create(user User) (User, error) {
 	const query = `
-		INSERT INTO users (id, email, password_hash, provider, provider_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?);
+		INSERT INTO users (id, email, password_hash, provider, provider_id, is_verified, verified_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 	`
 	_, err := r.db.ExecContext(
 		context.Background(),
@@ -34,6 +35,8 @@ func (r *SQLRepository) Create(user User) (User, error) {
 		user.PasswordHash,
 		user.Provider,
 		user.ProviderID,
+		user.IsVerified,
+		timeToNull(user.VerifiedAt),
 		user.CreatedAt.UTC(),
 		user.UpdatedAt.UTC(),
 	)
@@ -46,7 +49,7 @@ func (r *SQLRepository) Create(user User) (User, error) {
 func (r *SQLRepository) Update(user User) (User, error) {
 	const query = `
 		UPDATE users
-		SET email = ?, password_hash = ?, provider = ?, provider_id = ?, updated_at = ?
+		SET email = ?, password_hash = ?, provider = ?, provider_id = ?, is_verified = ?, verified_at = ?, updated_at = ?
 		WHERE id = ?;
 	`
 
@@ -57,6 +60,8 @@ func (r *SQLRepository) Update(user User) (User, error) {
 		user.PasswordHash,
 		user.Provider,
 		user.ProviderID,
+		user.IsVerified,
+		timeToNull(user.VerifiedAt),
 		user.UpdatedAt.UTC(),
 		user.ID,
 	)
@@ -77,7 +82,7 @@ func (r *SQLRepository) Update(user User) (User, error) {
 
 func (r *SQLRepository) GetByEmail(email string) (User, error) {
 	const query = `
-		SELECT id, email, password_hash, provider, provider_id, created_at, updated_at
+		SELECT id, email, password_hash, provider, provider_id, is_verified, verified_at, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER(?);
 	`
@@ -86,7 +91,7 @@ func (r *SQLRepository) GetByEmail(email string) (User, error) {
 
 func (r *SQLRepository) GetByID(id string) (User, error) {
 	const query = `
-		SELECT id, email, password_hash, provider, provider_id, created_at, updated_at
+		SELECT id, email, password_hash, provider, provider_id, is_verified, verified_at, created_at, updated_at
 		FROM users
 		WHERE id = ?;
 	`
@@ -95,7 +100,7 @@ func (r *SQLRepository) GetByID(id string) (User, error) {
 
 func (r *SQLRepository) GetByProvider(provider, providerID string) (User, error) {
 	const query = `
-		SELECT id, email, password_hash, provider, provider_id, created_at, updated_at
+		SELECT id, email, password_hash, provider, provider_id, is_verified, verified_at, created_at, updated_at
 		FROM users
 		WHERE provider = ? AND provider_id = ?;
 	`
@@ -104,9 +109,10 @@ func (r *SQLRepository) GetByProvider(provider, providerID string) (User, error)
 
 func (r *SQLRepository) getOne(query string, args ...interface{}) (User, error) {
 	var (
-		u       User
-		created sql.NullTime
-		updated sql.NullTime
+		u        User
+		created  sql.NullTime
+		updated  sql.NullTime
+		verified sql.NullTime
 	)
 	err := r.db.QueryRowContext(context.Background(), r.rebind(query), args...).Scan(
 		&u.ID,
@@ -114,6 +120,8 @@ func (r *SQLRepository) getOne(query string, args ...interface{}) (User, error) 
 		&u.PasswordHash,
 		&u.Provider,
 		&u.ProviderID,
+		&u.IsVerified,
+		&verified,
 		&created,
 		&updated,
 	)
@@ -121,6 +129,10 @@ func (r *SQLRepository) getOne(query string, args ...interface{}) (User, error) 
 		return User{}, err
 	}
 
+	if verified.Valid {
+		t := verified.Time.UTC()
+		u.VerifiedAt = &t
+	}
 	if created.Valid {
 		u.CreatedAt = created.Time.UTC()
 	}
@@ -132,4 +144,14 @@ func (r *SQLRepository) getOne(query string, args ...interface{}) (User, error) 
 
 func (r *SQLRepository) rebind(query string) string {
 	return database.Rebind(query, r.useDollar)
+}
+
+func timeToNull(t *time.Time) sql.NullTime {
+	if t == nil {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{
+		Time:  t.UTC(),
+		Valid: true,
+	}
 }
