@@ -17,6 +17,7 @@ const subjectForm = document.getElementById("subject-form");
 const subjectIdInput = document.getElementById("subject-id");
 const subjectNameInput = document.getElementById("subject-name");
 const subjectColorInput = document.getElementById("subject-color");
+const subjectColorLabel = subjectColorInput?.closest("label");
 const subjectSubmitBtn = document.getElementById("subject-submit");
 const subjectCancelBtn = document.getElementById("subject-cancel");
 const subjectErrorEl = document.getElementById("subject-error");
@@ -30,17 +31,21 @@ const historySubjectFilter = document.getElementById("history-subject-filter");
 const historyStartInput = document.getElementById("history-start-date");
 const historyEndInput = document.getElementById("history-end-date");
 const historyClearBtn = document.getElementById("history-clear-filters");
-const historyTableBody = document.getElementById("history-table-body");
+const historyListEl = document.getElementById("history-list");
+const historyCountEl = document.getElementById("history-count");
 const loginForm = document.getElementById("login-form");
 const registerForm = document.getElementById("register-form");
 const loginErrorEl = document.getElementById("login-error");
 const registerErrorEl = document.getElementById("register-error");
+const streakChipEl = document.getElementById("streak-chip");
+const streakCountEl = document.getElementById("streak-count");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 const showRegisterBtn = document.getElementById("show-register-btn");
 const showLoginBtn = document.getElementById("show-login-btn");
 const liveTrackSubjectInput = document.getElementById("live-track-subject");
 const liveTrackColorInput = document.getElementById("live-track-color");
+const liveTrackColorLabel = liveTrackColorInput?.closest("label");
 const liveTrackTimerEl = document.getElementById("live-track-timer");
 const liveTrackStatusEl = document.getElementById("live-track-status");
 const liveTrackStartBtn = document.getElementById("live-track-start");
@@ -59,7 +64,21 @@ const liveTrackSetupEl = document.getElementById("live-track-setup");
 const liveTrackControlsEl = document.getElementById("live-track-controls");
 const liveTrackMessageEl = document.getElementById("live-track-message");
 const liveTrackCardEl = document.querySelector(".live-track-card");
-const viewHistoryBtn = document.getElementById("view-history-btn");
+const manualSubjectInput = document.getElementById("subject");
+const manualSubjectSuggestions = document.getElementById("subject-suggestions");
+const subjectSearchInput = document.getElementById("subject-search");
+const subjectRefreshBtn = document.getElementById("subject-refresh");
+const subjectPaletteEl = document.getElementById("subject-palette");
+const liveTrackSubjectSuggestions = document.getElementById("live-track-suggestions");
+const suggestionPairs = [];
+let audioCtx = null;
+
+if (manualSubjectInput) {
+  manualSubjectInput.setAttribute("list", "subjects");
+}
+if (liveTrackSubjectInput) {
+  liveTrackSubjectInput.setAttribute("list", "subjects");
+}
 
 if (typeof Chart !== "undefined") {
   const rootStyles = getComputedStyle(document.documentElement);
@@ -72,6 +91,8 @@ let subjects = [];
 let summaryData = null;
 let editingSessionId = null;
 let editingSubjectId = null;
+let inlineSubjectEditId = null;
+let inlineSubjectDraft = null;
 let subjectChart = null;
 let trendChart = null;
 let currentUser = null;
@@ -81,6 +102,13 @@ let pendingView = localStorage.getItem("activeView") || "dashboard";
 
 const defaultSubjectColor = liveTrackColorInput?.value || "#6366f1";
 const LIVE_TRACK_MIN_MS = 60 * 1000;
+
+function normalizeColor(value, fallback = defaultSubjectColor) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const match = /^#([0-9a-f]{6}|[0-9a-f]{3})$/i;
+  if (match.test(raw)) return raw;
+  return fallback;
+}
 
 const liveTrackState = {
   status: "idle",
@@ -108,6 +136,9 @@ const fallbackColors = [
 ];
 
 function setDefaultTimes() {
+  if (!startTimeInput || !endTimeInput) {
+    return;
+  }
   const now = new Date();
   const endISO = toLocalInputValue(now);
   const startISO = toLocalInputValue(new Date(now.getTime() - 60 * 60 * 1000));
@@ -160,6 +191,59 @@ async function fetchJSON(url, options = {}) {
     return null;
   }
   return response.json();
+}
+
+function ensureAudioContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      return null;
+    }
+    audioCtx = new AudioContextClass();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+function playClickSound(frequency = 1250, duration = 0.06, volume = 0.12) {
+  const ctx = ensureAudioContext();
+  if (!ctx) {
+    return;
+  }
+
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const oscGain = ctx.createGain();
+  osc.type = "triangle";
+  osc.frequency.value = frequency;
+  oscGain.gain.setValueAtTime(0, now);
+  oscGain.gain.linearRampToValueAtTime(volume, now + 0.004);
+  oscGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  osc.connect(oscGain).connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.05);
+
+  const noiseBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.02), ctx.sampleRate);
+  const data = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.2;
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = noiseBuffer;
+  const highpass = ctx.createBiquadFilter();
+  highpass.type = "highpass";
+  highpass.frequency.value = 900;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(volume * 0.6, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+  noise.connect(highpass).connect(noiseGain).connect(ctx.destination);
+  noise.start(now);
+  noise.stop(now + 0.05);
 }
 
 function setLiveTrackAccent(color) {
@@ -226,6 +310,9 @@ function updateLiveTrackTimerText() {
 
 function handleLiveTrackTick() {
   updateLiveTrackTimerText();
+  if (liveTrackState.status === "running") {
+    playClickSound(750, 0.02, 0.08);
+  }
   if (
     liveTrackState.mode === "timer" &&
     liveTrackState.status === "running" &&
@@ -234,9 +321,11 @@ function handleLiveTrackTick() {
     captureLiveTrackElapsed();
     liveTrackState.status = "paused";
     clearLiveTrackInterval();
-    showMessage(liveTrackMessageEl, "Timer finished! Tap Log to save.");
+    showMessage(liveTrackMessageEl, "Timer finished! Tap Save to keep it.");
     updateLiveTrackUI();
   }
+  // Keep controls (Log button, pause state) in sync while the timer runs.
+  updateLiveTrackUI();
 }
 
 function updateLiveTrackUI() {
@@ -320,6 +409,7 @@ function handleTrackTriggerClick() {
   } else {
     resetLiveTrackState();
   }
+  playClickSound();
   updateLiveTrackUI();
 }
 
@@ -423,7 +513,7 @@ function captureLiveTrackElapsed() {
   }
 }
 
-function handleLiveTrackStart() {
+async function handleLiveTrackStart() {
   if (liveTrackState.status !== "idle" || liveTrackState.isSubmitting) {
     return;
   }
@@ -448,13 +538,16 @@ function handleLiveTrackStart() {
   } else {
     liveTrackState.timerDurationMs = 0;
   }
+  const pickedColor = liveTrackColorInput?.value || defaultSubjectColor;
+
   liveTrackState.subject = subject;
-  liveTrackState.color = liveTrackColorInput?.value || defaultSubjectColor;
+  liveTrackState.color = pickedColor;
   liveTrackState.elapsedMs = 0;
   liveTrackState.startedAt = Date.now();
   liveTrackState.status = "running";
   liveTrackState.showSetup = false;
   showMessage(liveTrackMessageEl, "");
+  liveTrackMessageEl?.classList.remove("success");
   setLiveTrackAccent(liveTrackState.color);
   startLiveTrackInterval();
   updateLiveTrackUI();
@@ -508,11 +601,11 @@ async function handleLiveTrackLog() {
   showMessage(liveTrackMessageEl, "");
 
   try {
-    await ensureSubjectExists(liveTrackState.subject, liveTrackState.color);
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - totalMs);
     const payload = {
       subject: liveTrackState.subject,
+      subjectColor: liveTrackState.color,
       notes: "Logged via Live Track",
       reflection: "",
       startTime: startTime.toISOString(),
@@ -523,15 +616,20 @@ async function handleLiveTrackLog() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    liveTrackMessageEl?.classList.add("success");
     showMessage(liveTrackMessageEl, "Session saved to your log.");
     resetLiveTrackState({ preserveMessage: true });
-    await Promise.all([loadSessions(), loadSummary()]);
+    await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
   } catch (error) {
     console.error("Failed to save live track session", error);
+    liveTrackMessageEl?.classList.remove("success");
     showMessage(liveTrackMessageEl, error.message || "Failed to save session.");
     liveTrackState.status = "paused";
   } finally {
     liveTrackState.isSubmitting = false;
+    if (!liveTrackMessageEl?.textContent) {
+      liveTrackMessageEl?.classList.remove("success");
+    }
     updateLiveTrackUI();
   }
 }
@@ -548,25 +646,61 @@ function initLiveTrack() {
     });
   }
   liveTrackChangeModeBtn?.addEventListener("click", handleLiveTrackChangeMode);
-  liveTrackColorInput?.addEventListener("input", handleLiveTrackColorPreview);
-  liveTrackColorInput?.addEventListener("change", handleLiveTrackColorPreview);
-  liveTrackDurationInput?.addEventListener("input", handleTimerDurationInput);
-  liveTrackDurationInput?.addEventListener("change", handleTimerDurationInput);
-  liveTrackDurationInput?.addEventListener("blur", handleTimerDurationInput);
-  resetLiveTrackState();
+// liveTrackColorInput?.addEventListener("input", handleLiveTrackColorPreview);
+// liveTrackColorInput?.addEventListener("change", handleLiveTrackColorPreview);
+liveTrackDurationInput?.addEventListener("input", handleTimerDurationInput);
+liveTrackDurationInput?.addEventListener("change", handleTimerDurationInput);
+liveTrackDurationInput?.addEventListener("blur", handleTimerDurationInput);
+
+if (liveTrackSubjectInput && liveTrackColorInput) {
+  liveTrackSubjectInput.addEventListener("input", () => {
+    if (liveTrackState.status !== "idle") {
+      return;
+    }
+    const name = liveTrackSubjectInput.value.trim();
+    const existingColor = findSubjectColor(name);
+    if (existingColor) {
+      liveTrackColorInput.value = existingColor;
+      setLiveTrackAccent(existingColor);
+      liveTrackColorInput.setAttribute("disabled", "disabled");
+      liveTrackColorLabel?.classList.add("hidden");
+    } else {
+      liveTrackColorInput.removeAttribute("disabled");
+      liveTrackColorLabel?.classList.remove("hidden");
+    }
+  });
+
+  liveTrackColorInput.addEventListener("blur", () => {
+    const name = liveTrackSubjectInput.value.trim();
+    const color = liveTrackColorInput.value.trim();
+    if (!name || !color) return;
+    const normalized = name.toLowerCase();
+    const existing = subjects.find(
+      (subject) => subject.name && subject.name.toLowerCase() === normalized
+    );
+    if (existing) {
+      existing.color = color;
+    }
+    liveTrackColorInput.removeAttribute("disabled");
+    liveTrackColorLabel?.classList.remove("hidden");
+  });
+}
+setupSubjectSuggestions(liveTrackSubjectInput, liveTrackSubjectSuggestions);
+resetLiveTrackState();
 }
 
 async function loadSubjects() {
   try {
-    subjects = await fetchJSON("/api/subjects");
+    const result = await fetchJSON("/api/subjects");
+    subjects = Array.isArray(result) ? result : [];
     renderSubjects();
     syncSubjectOptions();
     if (summaryData) {
       renderSummary();
     }
+    showMessage(subjectErrorEl, "");
   } catch (error) {
     console.error("Failed to load subjects", error);
-    showMessage(subjectErrorEl, "Failed to load subjects.");
   }
 }
 
@@ -576,6 +710,8 @@ async function loadSessions() {
     renderSessions();
     renderHistory();
     syncSubjectOptions();
+    renderSubjects();
+    showMessage(sessionErrorEl, "");
   } catch (error) {
     console.error("Failed to load sessions", error);
     showMessage(sessionErrorEl, "Failed to load study sessions.");
@@ -592,34 +728,93 @@ async function loadSummary() {
 }
 
 function renderSubjects() {
-  if (!subjects.length) {
-    subjectsListEl.innerHTML = "<li>No subjects yet. Add one above.</li>";
+  if (!subjectsListEl) {
     return;
   }
 
-  subjectsListEl.innerHTML = subjects
-    .map(
-      (subject) => `
-        <li data-id="${subject.id}">
+  const list = Array.isArray(subjects) ? subjects : [];
+  const query = (subjectSearchInput?.value || "").trim().toLowerCase();
+  const filtered = query
+    ? list.filter((subject) => subject.name && subject.name.toLowerCase().includes(query))
+    : list.slice();
+
+  if (!filtered.length) {
+    const message = list.length
+      ? `No subjects match "${escapeHTML(query)}".`
+      : "No subjects yet. Use the form above to add one.";
+    subjectsListEl.innerHTML = `<li class="subjects-empty">${message}</li>`;
+    return;
+  }
+
+  subjectsListEl.innerHTML = filtered
+    .map((subject, index) => {
+      const isEditingInline = inlineSubjectEditId === subject.id;
+      const draftName = isEditingInline
+        ? inlineSubjectDraft?.name ?? subject.name ?? ""
+        : subject.name ?? "";
+      const draftColor = normalizeColor(
+        isEditingInline ? inlineSubjectDraft?.color : subject.color,
+        fallbackColors[index % fallbackColors.length]
+      );
+      const subjectColor = normalizeColor(
+        subject.color,
+        fallbackColors[index % fallbackColors.length]
+      );
+      const count = Number(
+        typeof subject.sessionCount === "number" ? subject.sessionCount : 0
+      );
+      const minutes = Number(
+        typeof subject.totalMinutes === "number" ? subject.totalMinutes : 0
+      );
+      const sessionLabel = count === 1 ? "session" : "sessions";
+      if (isEditingInline) {
+        return `
+        <li class="subject-card is-editing" data-id="${subject.id}">
           <div class="subject-info">
-            <span class="subject-color" style="background-color: ${
-              subject.color || "#6366f1"
-            }"></span>
-            <span>${escapeHTML(subject.name)}</span>
+            <span class="subject-color" style="background-color: ${draftColor}"></span>
+            <div class="subject-info-text">
+              <label class="subject-inline-label">
+                Name
+                <input type="text" class="subject-inline-name" data-id="${subject.id}" value="${escapeHTML(
+                  draftName
+                )}" />
+              </label>
+              <label class="subject-inline-label">
+                Color
+                <input type="color" class="subject-inline-color" data-id="${subject.id}" value="${draftColor}" />
+              </label>
+            </div>
+          </div>
+          <div class="subject-actions">
+            <button type="button" class="secondary subject-inline-cancel" data-id="${subject.id}">Cancel</button>
+            <button type="button" class="subject-inline-save" data-id="${subject.id}">Save</button>
+          </div>
+        </li>
+      `;
+      }
+      return `
+        <li class="subject-card" data-id="${subject.id}">
+          <div class="subject-info">
+            <span class="subject-color" style="background-color: ${subjectColor}"></span>
+            <div class="subject-info-text">
+              <strong>${escapeHTML(subject.name)}</strong>
+              <span class="subject-meta">${count} ${sessionLabel} · ${minutes} min</span>
+            </div>
           </div>
           <div class="subject-actions">
             <button type="button" class="secondary edit-subject" data-id="${subject.id}">Edit</button>
             <button type="button" class="secondary delete-subject" data-id="${subject.id}">Delete</button>
           </div>
         </li>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
 function renderSessions() {
   if (!sessionsList) return;
   if (!Array.isArray(sessions) || sessions.length === 0) {
+    sessions = [];
     sessionsList.innerHTML = "<li>No study sessions yet.</li>";
     return;
   }
@@ -642,7 +837,6 @@ function renderSessions() {
               : ""
           }
           <div class="session-actions">
-            <button type="button" class="secondary edit-session" data-id="${session.id}">Edit</button>
             <button type="button" class="secondary delete-session" data-id="${session.id}">Delete</button>
           </div>
         </li>
@@ -667,6 +861,7 @@ function renderSummary(summary = summaryData) {
     monthMinutesEl.textContent = "0";
     streakDaysEl.textContent = "0";
     subjectBreakdownEl.innerHTML = "<p>No data yet.</p>";
+    renderStreakChip(0);
     updateSubjectChart({});
     updateTrendChart([]);
     return;
@@ -683,10 +878,22 @@ function renderSummary(summary = summaryData) {
   weekMinutesEl.textContent = summary.weekMinutes ?? 0;
   monthMinutesEl.textContent = summary.monthMinutes ?? 0;
   streakDaysEl.textContent = summary.streakDays ?? 0;
+  renderStreakChip(summary.streakDays ?? 0);
 
   renderSubjectBreakdown(summary.bySubject || {});
   updateSubjectChart(summary.bySubject || {});
   updateTrendChart(summary.dailyTrend || []);
+}
+
+function renderStreakChip(streakDays) {
+  if (!streakChipEl || !streakCountEl) return;
+  const days = Number.isFinite(streakDays) ? streakDays : 0;
+  streakCountEl.textContent = days;
+  const suffix = days === 1 ? "day streak" : "day streak";
+  streakChipEl.querySelector(".streak-text").textContent = `${days} ${suffix}`;
+  const isHot = days > 0;
+  streakChipEl.classList.toggle("is-cold", !isHot);
+  streakChipEl.setAttribute("aria-label", isHot ? `${days} day streak active` : "No active streak");
 }
 
 function renderSubjectBreakdown(bySubject) {
@@ -838,12 +1045,17 @@ function syncSubjectOptions() {
     }
   });
 
-  subjectsDatalist.innerHTML = Array.from(nameSet)
+  const optionsMarkup = Array.from(nameSet)
     .sort((a, b) => a.localeCompare(b))
     .map((name) => `<option value="${escapeHTML(name)}"></option>`)
     .join("");
 
+  if (subjectsDatalist) {
+    subjectsDatalist.innerHTML = optionsMarkup;
+  }
+
   updateHistorySubjectOptions(Array.from(nameSet));
+  refreshAllSubjectSuggestions();
 }
 
 function getSubjectColor(name, index) {
@@ -854,6 +1066,82 @@ function getSubjectColor(name, index) {
     return match.color;
   }
   return fallbackColors[index % fallbackColors.length];
+}
+
+function findSubjectColor(name) {
+  if (!name) return "";
+  const list = Array.isArray(subjects) ? subjects : [];
+  const match = list.find(
+    (subject) => subject.name && subject.name.toLowerCase() === name.toLowerCase()
+  );
+  return match?.color || "";
+}
+
+function setupSubjectSuggestions(inputEl, panelEl) {
+  if (!inputEl || !panelEl) {
+    return;
+  }
+  const pair = { input: inputEl, panel: panelEl, suppressRender: false };
+  suggestionPairs.push(pair);
+
+  const hidePanel = () => {
+    panelEl.hidden = true;
+    panelEl.innerHTML = "";
+  };
+
+  inputEl.addEventListener("input", () => renderSubjectSuggestions(pair));
+  inputEl.addEventListener("focus", () => renderSubjectSuggestions(pair));
+  panelEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const value = target.dataset.value;
+    if (!value) return;
+    pair.suppressRender = true;
+    inputEl.value = value;
+    inputEl.dispatchEvent(new Event("input"));
+    hidePanel();
+    inputEl.focus();
+  });
+}
+
+function renderSubjectSuggestions(pair) {
+  const { input, panel } = pair;
+  if (!input || !panel) return;
+  if (pair.suppressRender) {
+    pair.suppressRender = false;
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  const available = Array.isArray(subjects) ? subjects : [];
+  if (!available.length) {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  const query = input.value.trim().toLowerCase();
+  const names = Array.from(
+    new Set(available.map((subject) => subject.name).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
+  const filtered = names.filter((name) =>
+    query ? name.toLowerCase().includes(query) : true
+  );
+  if (!filtered.length) {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  panel.innerHTML = filtered
+    .slice(0, 8)
+    .map(
+      (name) => `<button type="button" data-value="${escapeHTML(name)}">${escapeHTML(name)}</button>`
+    )
+    .join("");
+  panel.hidden = false;
+}
+
+function refreshAllSubjectSuggestions() {
+  suggestionPairs.forEach(renderSubjectSuggestions);
 }
 
 function formatDate(value) {
@@ -879,6 +1167,44 @@ function formatHistoryDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatHistoryRange(startValue, endValue) {
+  const start = startValue ? new Date(startValue) : null;
+  const end = endValue ? new Date(endValue) : null;
+
+  if (!start || Number.isNaN(start.getTime())) {
+    return "Time unavailable";
+  }
+
+  const baseDate = start.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const startTime = start.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (!end || Number.isNaN(end.getTime())) {
+    return `${baseDate} · ${startTime}`;
+  }
+
+  const sameDay = start.toDateString() === end.toDateString();
+  const endDate = end.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const endTime = end.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return sameDay
+    ? `${baseDate} · ${startTime} - ${endTime}`
+    : `${baseDate} ${startTime} → ${endDate} ${endTime}`;
 }
 
 function formatTrendLabel(dateString) {
@@ -984,25 +1310,56 @@ function getFilteredSessions() {
 }
 
 function renderHistory() {
-  if (!historyTableBody) return;
+  if (!historyListEl) return;
   const filtered = getFilteredSessions();
+  const totalCount = Array.isArray(sessions) ? sessions.length : 0;
+
+  if (historyCountEl) {
+    const showing = filtered.length;
+    const suffix =
+      totalCount && showing !== totalCount ? ` of ${totalCount}` : "";
+    const label = showing === 1 ? "session" : "sessions";
+    historyCountEl.textContent = showing
+      ? `Showing ${showing}${suffix} ${label}`
+      : totalCount
+      ? "No sessions match these filters."
+      : "No sessions logged yet.";
+  }
 
   if (!filtered.length) {
-    historyTableBody.innerHTML =
-      '<tr><td colspan="4" class="history-empty">No sessions match these filters.</td></tr>';
+    historyListEl.innerHTML =
+      '<li class="history-empty-card">No sessions match these filters.</li>';
     return;
   }
 
-  historyTableBody.innerHTML = filtered
-    .map((session) => {
-      const cleanNotes = escapeHTML(session.notes || "—");
+  historyListEl.innerHTML = filtered
+    .map((session, index) => {
+      const subjectName = escapeHTML(session.subject || "Unknown");
+      const notes = escapeHTML(session.notes || "No notes");
+      const reflection = session.reflection
+        ? `<div class="meta italic">Reflection: ${escapeHTML(session.reflection)}</div>`
+        : "";
+      const subjectColor = getSubjectColor(session.subject || "", index);
+
       return `
-        <tr>
-          <td>${escapeHTML(session.subject || "Unknown")}</td>
-          <td>${session.durationMinutes || 0} min</td>
-          <td>${formatHistoryDate(session.startTime)}</td>
-          <td>${cleanNotes}</td>
-        </tr>
+        <li class="history-session" data-id="${session.id}">
+          <div class="history-session-header">
+            <div class="history-session-subject">
+              <span class="history-session-dot" style="background-color: ${subjectColor}"></span>
+              <strong>${subjectName}</strong>
+            </div>
+            <span class="history-session-duration">${session.durationMinutes || 0} min</span>
+          </div>
+          <div class="history-session-time">${formatHistoryRange(
+            session.startTime,
+            session.endTime
+          )}</div>
+          <div class="meta">Notes: ${notes}</div>
+          ${reflection}
+          <div class="session-actions">
+            <button type="button" class="secondary delete-session" data-id="${session.id}">Delete</button>
+          </div>
+        </li>
       `;
     })
     .join("");
@@ -1010,13 +1367,25 @@ function renderHistory() {
 
 async function handleSessionSubmit(event) {
   event.preventDefault();
+  if (!sessionForm) {
+    return;
+  }
   showMessage(sessionErrorEl, "");
 
-  const subject = document.getElementById("subject").value.trim();
-  const notes = document.getElementById("notes").value.trim();
-  const reflection = document.getElementById("reflection").value.trim();
+  const subjectInput = document.getElementById("subject");
+  const notesInput = document.getElementById("notes");
+  const reflectionInput = document.getElementById("reflection");
+  if (!subjectInput || !startTimeInput || !endTimeInput) {
+    showMessage(sessionErrorEl, "Manual session logging is currently unavailable.");
+    return;
+  }
+
+  const subject = subjectInput.value.trim();
+  const notes = notesInput?.value.trim() || "";
+  const reflection = reflectionInput?.value.trim() || "";
   const startTime = startTimeInput.value;
   const endTime = endTimeInput.value;
+  const selectedColor = subjectColorInput?.value || "#6366f1";
 
   if (!subject || !startTime || !endTime) {
     showMessage(sessionErrorEl, "Please fill subject, start, and end time.");
@@ -1025,6 +1394,7 @@ async function handleSessionSubmit(event) {
 
   const payload = {
     subject,
+    subjectColor: selectedColor,
     notes,
     reflection,
     startTime: new Date(startTime).toISOString(),
@@ -1045,7 +1415,7 @@ async function handleSessionSubmit(event) {
     });
 
     resetSessionForm();
-    await Promise.all([loadSessions(), loadSummary()]);
+    await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
   } catch (error) {
     console.error("Failed to submit session", error);
     showMessage(sessionErrorEl, error.message);
@@ -1095,7 +1465,9 @@ async function ensureSubjectExists(name, color) {
     throw new Error("Subject name missing.");
   }
 
-  const existing = subjects.find(
+  const list = Array.isArray(subjects) ? subjects : [];
+
+  const existing = list.find(
     (subject) => subject.name && subject.name.toLowerCase() === normalized
   );
   if (existing) {
@@ -1124,10 +1496,15 @@ async function ensureSubjectExists(name, color) {
 }
 
 function resetSessionForm() {
+  if (!sessionForm) {
+    return;
+  }
   sessionForm.reset();
   editingSessionId = null;
-  sessionSubmitBtn.textContent = "Save Session";
-  sessionCancelBtn.classList.add("hidden");
+  if (sessionSubmitBtn) {
+    sessionSubmitBtn.textContent = "Save Session";
+  }
+  sessionCancelBtn?.classList.add("hidden");
   showMessage(sessionErrorEl, "");
   setDefaultTimes();
 }
@@ -1180,44 +1557,65 @@ function activateView(name, options = {}) {
   }
 }
 
-function beginSessionEdit(id) {
-  const session = sessions.find((item) => item.id === id);
-  if (!session) return;
-
-  editingSessionId = id;
-  document.getElementById("subject").value = session.subject || "";
-  document.getElementById("notes").value = session.notes || "";
-  document.getElementById("reflection").value = session.reflection || "";
-
-  if (session.startTime) {
-    startTimeInput.value = toLocalInputValue(new Date(session.startTime));
-  }
-  if (session.endTime) {
-    endTimeInput.value = toLocalInputValue(new Date(session.endTime));
-  }
-
-  sessionSubmitBtn.textContent = "Update Session";
-  sessionCancelBtn.classList.remove("hidden");
-}
-
 function beginSubjectEdit(id) {
   const subject = subjects.find((item) => item.id === id);
   if (!subject) return;
 
-  editingSubjectId = id;
-  subjectIdInput.value = id;
-  subjectNameInput.value = subject.name || "";
-  subjectColorInput.value = subject.color || "#6366f1";
+  inlineSubjectEditId = id;
+  inlineSubjectDraft = {
+    name: subject.name || "",
+    color: subject.color || "#6366f1",
+  };
+  resetSubjectForm();
+  showMessage(subjectErrorEl, "");
+  renderSubjects();
+}
 
-  subjectSubmitBtn.textContent = "Update Subject";
-  subjectCancelBtn.classList.remove("hidden");
+function cancelInlineSubjectEdit() {
+  inlineSubjectEditId = null;
+  inlineSubjectDraft = null;
+  renderSubjects();
+}
+
+function updateInlineSubjectDraft(field, value) {
+  if (!inlineSubjectEditId) return;
+  inlineSubjectDraft = {
+    ...(inlineSubjectDraft || {}),
+    [field]: field === "color" ? normalizeColor(value) : value,
+  };
+}
+
+async function saveInlineSubjectEdit(id) {
+  if (!inlineSubjectEditId || inlineSubjectEditId !== id) return;
+  const name = (inlineSubjectDraft?.name || "").trim();
+  const color = normalizeColor(inlineSubjectDraft?.color);
+
+  if (!name) {
+    showMessage(subjectErrorEl, "Subject name is required.");
+    return;
+  }
+
+  try {
+    await fetchJSON(`/api/subjects/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, name, color }),
+    });
+    inlineSubjectEditId = null;
+    inlineSubjectDraft = null;
+    await loadSubjects();
+    showMessage(subjectErrorEl, "");
+  } catch (error) {
+    console.error("Failed to update subject", error);
+    showMessage(subjectErrorEl, error.message || "Failed to update subject.");
+  }
 }
 
 async function deleteSession(id) {
   if (!window.confirm("Delete this study session?")) return;
   try {
     await fetchJSON(`/api/study-sessions/${id}`, { method: "DELETE" });
-    await Promise.all([loadSessions(), loadSummary()]);
+    await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
   } catch (error) {
     console.error("Failed to delete session", error);
     showMessage(sessionErrorEl, "Failed to delete session.");
@@ -1244,24 +1642,89 @@ async function deleteSubject(id) {
   }
 }
 
-sessionForm.addEventListener("submit", handleSessionSubmit);
-sessionCancelBtn.addEventListener("click", resetSessionForm);
+if (sessionForm) {
+  sessionForm.addEventListener("submit", handleSessionSubmit);
+}
+if (sessionCancelBtn) {
+  sessionCancelBtn.addEventListener("click", resetSessionForm);
+}
 
 subjectForm.addEventListener("submit", handleSubjectSubmit);
 subjectCancelBtn.addEventListener("click", resetSubjectForm);
+setupSubjectSuggestions(manualSubjectInput, manualSubjectSuggestions);
+if (subjectSearchInput) {
+  subjectSearchInput.addEventListener("input", () => renderSubjects());
+}
+if (subjectRefreshBtn) {
+  subjectRefreshBtn.addEventListener("click", () => loadSubjects());
+}
+if (subjectPaletteEl && subjectColorInput) {
+  subjectPaletteEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const color = target.dataset.color;
+    if (!color) return;
+    subjectColorInput.value = color;
+    subjectColorInput.removeAttribute("disabled");
+    subjectColorLabel?.classList.remove("hidden");
+  });
+}
 
-sessionsList.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  const id = target.dataset.id;
-  if (!id) return;
+if (subjectNameInput && subjectColorInput) {
+  subjectNameInput.addEventListener("input", () => {
+    const existingColor = findSubjectColor(subjectNameInput.value.trim());
+    if (existingColor) {
+      subjectColorInput.value = existingColor;
+      subjectColorInput.setAttribute("disabled", "disabled");
+      subjectColorLabel?.classList.add("hidden");
+    } else {
+      subjectColorInput.removeAttribute("disabled");
+      subjectColorLabel?.classList.remove("hidden");
+      subjectColorInput.value = "#6366f1";
+    }
+  });
 
-  if (target.classList.contains("edit-session")) {
-    beginSessionEdit(id);
-  } else if (target.classList.contains("delete-session")) {
-    deleteSession(id);
-  }
-});
+  subjectColorInput.addEventListener("blur", () => {
+    const name = subjectNameInput.value.trim();
+    const color = subjectColorInput.value.trim();
+    if (!name || !color) return;
+    const normalized = name.toLowerCase();
+    const existing = subjects.find(
+      (subject) => subject.name && subject.name.toLowerCase() === normalized
+    );
+    if (existing) {
+      existing.color = color;
+    }
+    subjectColorInput.removeAttribute("disabled");
+    subjectColorLabel?.classList.remove("hidden");
+  });
+}
+
+if (sessionsList) {
+  sessionsList.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const id = target.dataset.id;
+    if (!id) return;
+
+    if (target.classList.contains("delete-session")) {
+      deleteSession(id);
+    }
+  });
+}
+
+if (historyListEl) {
+  historyListEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const id = target.dataset.id;
+    if (!id) return;
+
+    if (target.classList.contains("delete-session")) {
+      deleteSession(id);
+    }
+  });
+}
 
 subjectsListEl.addEventListener("click", (event) => {
   const target = event.target;
@@ -1273,6 +1736,27 @@ subjectsListEl.addEventListener("click", (event) => {
     beginSubjectEdit(id);
   } else if (target.classList.contains("delete-subject")) {
     deleteSubject(id);
+  } else if (target.classList.contains("subject-inline-save")) {
+    saveInlineSubjectEdit(id);
+  } else if (target.classList.contains("subject-inline-cancel")) {
+    cancelInlineSubjectEdit();
+  }
+});
+
+subjectsListEl.addEventListener("input", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const id = target.dataset.id;
+  if (!id) return;
+
+  if (target.classList.contains("subject-inline-name")) {
+    updateInlineSubjectDraft("name", target.value);
+  } else if (target.classList.contains("subject-inline-color")) {
+    updateInlineSubjectDraft("color", target.value);
+    const swatch = target.closest(".subject-card")?.querySelector(".subject-color");
+    if (swatch) {
+      swatch.style.backgroundColor = target.value;
+    }
   }
 });
 
@@ -1285,10 +1769,6 @@ navButtons.forEach((btn) => {
     activateView(btn.dataset.view);
   });
 });
-
-if (viewHistoryBtn) {
-  viewHistoryBtn.addEventListener("click", () => activateView("history"));
-}
 
 if (historySubjectFilter) {
   historySubjectFilter.addEventListener("change", renderHistory);

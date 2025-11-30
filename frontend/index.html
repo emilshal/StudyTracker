@@ -22,7 +22,7 @@
             History
           </button>
           <button type="button" class="app-nav__btn" data-view="log" role="tab">
-            Log
+            Subjects
           </button>
           <button type="button" class="app-nav__btn" data-view="trends" role="tab">
             Trends
@@ -82,149 +82,133 @@
       </section>
 
       <section class="view active" data-view="dashboard" aria-label="Dashboard">
-        <div class="layout layout-dashboard">
-          <section class="card live-track-card" aria-labelledby="live-track-title">
-            <div class="live-track-hero">
-              <h2 id="live-track-title">Live Track</h2>
-              <p class="live-track-subtitle">Tap start, stay focused, and let the tracker log the rest.</p>
+        <section class="card live-track-card live-track-card--full" aria-labelledby="live-track-title">
+          <div class="live-track-hero">
+            <h2 id="live-track-title">Live Track</h2>
+            <p class="live-track-subtitle">Tap start, stay focused, and let the tracker log the rest.</p>
+          </div>
+          <div class="live-track-circle" id="live-track-circle">
+            <button
+              type="button"
+              class="live-track-trigger"
+              id="live-track-trigger"
+              aria-pressed="false"
+              aria-expanded="false"
+            >
+              <span>Track Live</span>
+            </button>
+            <div class="live-track-timer-display hidden" id="live-track-timer-wrapper" aria-live="polite">
+              <span id="live-track-timer">00:00:00</span>
             </div>
-            <div class="live-track-circle" id="live-track-circle">
+          </div>
+          <p id="live-track-status" class="live-track-status">Tap Track Live to begin.</p>
+          <div class="live-track-mode hidden" id="live-track-mode">
+            <p class="live-track-mode-hint">Choose how you want to focus.</p>
+            <div class="live-track-mode-options">
+              <button type="button" data-live-track-mode="stopwatch">
+                <strong>Stopwatch</strong>
+                <span>Count up and log whenever you're done.</span>
+              </button>
+              <button type="button" data-live-track-mode="timer">
+                <strong>Timer</strong>
+                <span>Set a countdown and log at zero.</span>
+              </button>
+            </div>
+          </div>
+          <div class="live-track-setup hidden" id="live-track-setup">
+            <div class="live-track-setup-header">
+              <span class="live-track-selected-mode hidden" id="live-track-selected-mode">Stopwatch</span>
               <button
                 type="button"
-                class="live-track-trigger"
-                id="live-track-trigger"
-                aria-pressed="false"
-                aria-expanded="false"
+                class="link-button live-track-change-mode hidden"
+                id="live-track-change-mode"
               >
-                <span>Track Live</span>
+                Change
               </button>
-              <div class="live-track-timer-display hidden" id="live-track-timer-wrapper" aria-live="polite">
-                <span id="live-track-timer">00:00:00</span>
-              </div>
             </div>
-            <p id="live-track-status" class="live-track-status">Tap Track Live to begin.</p>
-            <div class="live-track-mode hidden" id="live-track-mode">
-              <p class="live-track-mode-hint">Choose how you want to focus.</p>
-              <div class="live-track-mode-options">
-                <button type="button" data-live-track-mode="stopwatch">
-                  <strong>Stopwatch</strong>
-                  <span>Count up and log whenever you're done.</span>
-                </button>
-                <button type="button" data-live-track-mode="timer">
-                  <strong>Timer</strong>
-                  <span>Set a countdown and log at zero.</span>
-                </button>
-              </div>
-            </div>
-            <div class="live-track-setup hidden" id="live-track-setup">
-              <div class="live-track-setup-header">
-                <span class="live-track-selected-mode hidden" id="live-track-selected-mode">Stopwatch</span>
-                <button
-                  type="button"
-                  class="link-button live-track-change-mode hidden"
-                  id="live-track-change-mode"
-                >
-                  Change
-                </button>
-              </div>
-              <label>
-                Subject
-                <input
-                  type="text"
-                  id="live-track-subject"
-                  list="subjects"
-                  placeholder="Choose or create a subject"
-                  autocomplete="off"
-                  required
-                />
-              </label>
-              <label class="live-track-color">
-                Color
-                <input type="color" id="live-track-color" value="#6366f1" />
-              </label>
-              <label class="live-track-duration hidden" id="live-track-duration-wrapper">
-                Duration (minutes)
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  id="live-track-duration"
-                  value="25"
-                  placeholder="e.g. 25"
-                />
-              </label>
-              <button type="button" id="live-track-start">Start</button>
-            </div>
-            <div class="live-track-controls hidden" id="live-track-controls">
-              <button type="button" class="secondary" id="live-track-pause" disabled>Pause</button>
-              <button type="button" id="live-track-log" disabled>Log</button>
-            </div>
-            <p id="live-track-message" class="form-message hidden"></p>
-          </section>
-
-          <section class="card card-content" aria-labelledby="recent-title">
-            <div class="recent-header">
-              <div>
-                <h2 id="recent-title">Recent Sessions</h2>
-                <p class="recent-note">A quick view of your last five logs.</p>
-              </div>
-              <button type="button" class="link-button" id="view-history-btn">Open full history</button>
-            </div>
-            <ul id="sessions-list" class="sessions-list"></ul>
-          </section>
+            <label>
+              Subject
+              <input
+                type="text"
+                id="live-track-subject"
+                placeholder="Choose or create a subject"
+                list="subjects"
+                autocomplete="off"
+                required
+              />
+              <div class="subject-suggestions" id="live-track-suggestions" hidden></div>
+            </label>
+            <label class="live-track-color">
+              Color
+              <input type="color" id="live-track-color" value="#6366f1" />
+            </label>
+            <label class="live-track-duration hidden" id="live-track-duration-wrapper">
+              Duration (minutes)
+              <input
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                id="live-track-duration"
+                value="25"
+                placeholder="e.g. 25"
+              />
+            </label>
+            <button type="button" id="live-track-start">Start</button>
+          </div>
+          <div class="live-track-controls hidden" id="live-track-controls">
+            <button type="button" class="secondary" id="live-track-pause" disabled>Pause</button>
+            <button type="button" id="live-track-log" disabled>Save</button>
+          </div>
+          <p id="live-track-message" class="form-message hidden"></p>
+        </section>
+        <div class="streak-chip" id="streak-chip" aria-live="polite">
+          <span class="streak-icon" aria-hidden="true">🔥</span>
+          <span class="streak-text"><strong id="streak-count">0</strong> day streak</span>
         </div>
       </section>
 
-      <section class="view" data-view="log" aria-label="Log Session & Subjects">
-        <div class="layout layout-log">
-          <section class="card card-form" aria-labelledby="sessions-title">
-            <h2 id="sessions-title">Log Study Session</h2>
-            <form id="session-form">
-          <label>
-            Subject
-            <input type="text" id="subject" list="subjects" placeholder="e.g. Math" required />
-            <datalist id="subjects"></datalist>
-          </label>
-
-          <label>
-            Start Time
-            <input type="datetime-local" id="start-time" required />
-          </label>
-
-          <label>
-            End Time
-            <input type="datetime-local" id="end-time" required />
-          </label>
-
-          <label>
-            Notes
-            <textarea id="notes" rows="3"></textarea>
-          </label>
-
-          <label>
-            Reflection
-            <input type="text" id="reflection" placeholder="How did it go?" />
-          </label>
-              <div class="form-actions">
-                <button type="submit" id="session-submit">Save Session</button>
-                <button type="button" id="session-cancel" class="secondary hidden">Cancel</button>
+      <section class="view" data-view="log" aria-label="Subjects">
+        <div class="layout layout-subjects">
+          <section class="card subjects-manager" aria-labelledby="subjects-title">
+            <div class="subject-manager-header">
+              <div>
+                <h2 id="subjects-title">Subjects</h2>
+                <p class="subject-list-subtitle">
+                  Add, update, or remove subjects—all changes flow into live tracking, manual logging, and charts.
+                </p>
               </div>
-              <p id="session-error" class="form-message hidden"></p>
-            </form>
-          </section>
+              <div class="subject-list-controls">
+                <label class="sr-only" for="subject-search">Search subjects</label>
+                <input type="search" id="subject-search" placeholder="Search by name" autocomplete="off" />
+                <button type="button" class="secondary" id="subject-refresh">Refresh</button>
+              </div>
+            </div>
 
-          <section class="card card-form" aria-labelledby="subjects-title">
-            <h2 id="subjects-title">Subjects</h2>
-            <form id="subject-form">
+            <form id="subject-form" class="subject-form subjects-manager-form">
               <input type="hidden" id="subject-id" />
-              <label>
-                Name
-                <input type="text" id="subject-name" placeholder="e.g. Mathematics" required />
-              </label>
-              <label>
-                Color
-                <input type="color" id="subject-color" value="#6366f1" />
-              </label>
+              <div class="subject-form-grid">
+                <label>
+                  Name
+                  <input type="text" id="subject-name" placeholder="e.g. Mathematics" required />
+                </label>
+                <label>
+                  Color
+                  <input type="color" id="subject-color" value="#6366f1" />
+                </label>
+              </div>
+              <div class="subject-quick-palette" id="subject-palette">
+                <span>Quick colors:</span>
+                <div class="subject-quick-palette__colors">
+                  <button type="button" class="subject-quick-color" data-color="#6366f1" style="--subject-color:#6366f1" aria-label="Select #6366f1"></button>
+                  <button type="button" class="subject-quick-color" data-color="#38bdf8" style="--subject-color:#38bdf8" aria-label="Select #38bdf8"></button>
+                  <button type="button" class="subject-quick-color" data-color="#f472b6" style="--subject-color:#f472b6" aria-label="Select #f472b6"></button>
+                  <button type="button" class="subject-quick-color" data-color="#facc15" style="--subject-color:#facc15" aria-label="Select #facc15"></button>
+                  <button type="button" class="subject-quick-color" data-color="#34d399" style="--subject-color:#34d399" aria-label="Select #34d399"></button>
+                  <button type="button" class="subject-quick-color" data-color="#f97316" style="--subject-color:#f97316" aria-label="Select #f97316"></button>
+                  <button type="button" class="subject-quick-color" data-color="#22d3ee" style="--subject-color:#22d3ee" aria-label="Select #22d3ee"></button>
+                  <button type="button" class="subject-quick-color" data-color="#a855f7" style="--subject-color:#a855f7" aria-label="Select #a855f7"></button>
+                </div>
+              </div>
               <div class="form-actions">
                 <button type="submit" id="subject-submit">Add Subject</button>
                 <button type="button" id="subject-cancel" class="secondary hidden">Cancel</button>
@@ -242,7 +226,7 @@
           <div class="history-header">
             <div>
               <h2>Session History</h2>
-              <p class="history-subtitle">Browse, filter, and revisit everything you've logged.</p>
+              <p class="history-subtitle">Browse, filter, and revisit everything you've logged—your most recent sessions live here now.</p>
             </div>
             <div class="history-filters">
               <label>
@@ -263,23 +247,14 @@
             </div>
           </div>
 
-          <div class="history-table-wrapper">
-            <table class="history-table">
-              <thead>
-                <tr>
-                  <th>Subject</th>
-                  <th>Duration</th>
-                  <th>Date</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="history-table-body">
-                <tr>
-                  <td colspan="4" class="history-empty">No sessions yet.</td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="history-meta">
+            <p id="history-count" class="history-count">Showing 0 sessions</p>
+            <p class="history-sort-hint">Sorted newest to oldest.</p>
           </div>
+
+          <ul id="history-list" class="sessions-list history-sessions">
+            <li class="history-empty-card">No sessions yet.</li>
+          </ul>
         </section>
       </section>
 
@@ -337,6 +312,8 @@
         </section>
       </section>
     </main>
+
+    <datalist id="subjects"></datalist>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="assets/js/app.js"></script>

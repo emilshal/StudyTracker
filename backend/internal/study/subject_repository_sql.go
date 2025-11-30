@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -27,10 +28,15 @@ func NewSQLSubjectRepository(db *sql.DB) *SQLSubjectRepository {
 func (r *SQLSubjectRepository) Create(subject Subject) (Subject, error) {
 	const query = `
 		INSERT INTO subjects (id, user_id, name, color, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?);
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET
+			user_id = excluded.user_id,
+			color = excluded.color,
+			updated_at = excluded.updated_at
+		RETURNING id, user_id, name, color, created_at, updated_at;
 	`
 
-	_, err := r.db.ExecContext(
+	row := r.db.QueryRowContext(
 		context.Background(),
 		r.rebind(query),
 		subject.ID,
@@ -40,11 +46,15 @@ func (r *SQLSubjectRepository) Create(subject Subject) (Subject, error) {
 		subject.CreatedAt.UTC(),
 		subject.UpdatedAt.UTC(),
 	)
-	if err != nil {
+	var created Subject
+	var color sql.NullString
+	if err := row.Scan(&created.ID, &created.UserID, &created.Name, &color, &created.CreatedAt, &created.UpdatedAt); err != nil {
 		return Subject{}, mapSubjectError(err)
 	}
-
-	return subject, nil
+	if color.Valid {
+		created.Color = color.String
+	}
+	return created, nil
 }
 
 func (r *SQLSubjectRepository) Update(subject Subject) (Subject, error) {
@@ -99,10 +109,22 @@ func (r *SQLSubjectRepository) Delete(userID, id string) error {
 
 func (r *SQLSubjectRepository) List(userID string) ([]Subject, error) {
 	const query = `
-		SELECT id, user_id, name, color, created_at, updated_at
-		FROM subjects
-		WHERE user_id = ?
-		ORDER BY LOWER(name) ASC;
+		SELECT s.id, s.user_id, s.name, s.color, s.created_at, s.updated_at,
+		       COUNT(ss.id) AS session_count,
+		       COALESCE(SUM(ss.duration_minutes), 0) AS total_minutes
+		FROM subjects s
+		LEFT JOIN study_sessions ss
+		  ON ss.user_id = s.user_id
+		 AND (
+		   ss.subject_id = s.id
+		   OR (
+		     (ss.subject_id IS NULL OR ss.subject_id = '')
+		     AND LOWER(ss.subject_name) = LOWER(s.name)
+		   )
+		 )
+		WHERE s.user_id = ?
+		GROUP BY s.id, s.user_id, s.name, s.color, s.created_at, s.updated_at
+		ORDER BY LOWER(s.name) ASC;
 	`
 
 	rows, err := r.db.QueryContext(context.Background(), r.rebind(query), userID)
@@ -116,6 +138,8 @@ func (r *SQLSubjectRepository) List(userID string) ([]Subject, error) {
 		var subject Subject
 		var color sql.NullString
 		var created, updated time.Time
+		var sessionCount sql.NullInt64
+		var totalMinutes sql.NullInt64
 
 		if err := rows.Scan(
 			&subject.ID,
@@ -124,6 +148,8 @@ func (r *SQLSubjectRepository) List(userID string) ([]Subject, error) {
 			&color,
 			&created,
 			&updated,
+			&sessionCount,
+			&totalMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -133,6 +159,12 @@ func (r *SQLSubjectRepository) List(userID string) ([]Subject, error) {
 		}
 		subject.CreatedAt = created.UTC()
 		subject.UpdatedAt = updated.UTC()
+		if sessionCount.Valid {
+			subject.SessionCount = int(sessionCount.Int64)
+		}
+		if totalMinutes.Valid {
+			subject.TotalMinutes = int(totalMinutes.Int64)
+		}
 
 		subjects = append(subjects, subject)
 	}
@@ -198,10 +230,13 @@ func (r *SQLSubjectRepository) GetByName(userID, name string) (Subject, error) {
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			log.Printf("GetByName: subject not found user=%s name=%s", userID, name)
 			return Subject{}, ErrSubjectNotFound
 		}
+		log.Printf("GetByName: query failed user=%s name=%s err=%v", userID, name, err)
 		return Subject{}, err
 	}
+	log.Printf("GetByName: success user=%s subjectID=%s", userID, subject.ID)
 
 	if color.Valid {
 		subject.Color = color.String

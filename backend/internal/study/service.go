@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -33,11 +34,19 @@ func NewService(sessionRepo SessionRepository, subjectRepo SubjectRepository) *S
 // CreateSession stores a new study session, generating an ID when missing.
 func (s *Service) CreateSession(userID string, session StudySession) (StudySession, error) {
 	session.UserID = userID
+	log.Printf("CreateSession: user=%s subject=%s", userID, session.Subject)
 	if err := s.prepareSession(&session, true); err != nil {
+		log.Printf("CreateSession: prepare failed user=%s err=%v", userID, err)
 		return StudySession{}, err
 	}
 
-	return s.sessions.Create(session)
+	created, err := s.sessions.Create(session)
+	if err != nil {
+		log.Printf("CreateSession: persist failed user=%s err=%v", userID, err)
+		return StudySession{}, err
+	}
+	log.Printf("CreateSession: success user=%s session=%s subjectID=%s", userID, created.ID, created.SubjectID)
+	return created, nil
 }
 
 // UpdateSession persists changes to an existing study session.
@@ -200,15 +209,27 @@ func (s *Service) prepareSession(session *StudySession, isCreate bool) error {
 	}
 
 	if s.subjects != nil && session.UserID != "" {
+		log.Printf("prepareSession: lookup subject user=%s subject=%s", session.UserID, session.Subject)
 		subject, err := s.subjects.GetByName(session.UserID, session.Subject)
 		if err != nil {
 			if errors.Is(err, ErrSubjectNotFound) {
-				return ErrUnknownSubject
+				log.Printf("prepareSession: subject missing, creating user=%s subject=%s", session.UserID, session.Subject)
+				subject, err = s.createSubjectOnDemand(session.UserID, session.Subject, session.SubjectColor)
+				if err != nil {
+					log.Printf("prepareSession: subject create failed user=%s subject=%s err=%v", session.UserID, session.Subject, err)
+					return err
+				}
+			} else {
+				log.Printf("prepareSession: lookup failed user=%s subject=%s err=%v", session.UserID, session.Subject, err)
+				return err
 			}
-			return err
 		}
+		log.Printf("prepareSession: using subjectID=%s color=%s", subject.ID, subject.Color)
 		session.SubjectID = subject.ID
 		session.Subject = subject.Name
+		if session.SubjectColor == "" && subject.Color != "" {
+			session.SubjectColor = subject.Color
+		}
 	}
 
 	if session.StartTime.IsZero() || session.EndTime.IsZero() {
@@ -287,4 +308,36 @@ func generateID() string {
 		return time.Now().UTC().Format("20060102150405.000000000")
 	}
 	return hex.EncodeToString(b[:])
+}
+
+const defaultSubjectColor = "#6366f1"
+
+func (s *Service) createSubjectOnDemand(userID, name, color string) (Subject, error) {
+	if s.subjects == nil {
+		return Subject{}, ErrUnknownSubject
+	}
+	log.Printf("createSubjectOnDemand: user=%s subject=%s", userID, name)
+	now := time.Now().UTC()
+	subject := Subject{
+		ID:        generateID(),
+		UserID:    userID,
+		Name:      name,
+		Color:     color,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if subject.Color == "" {
+		subject.Color = defaultSubjectColor
+	}
+	created, err := s.subjects.Create(subject)
+	if err != nil {
+		if errors.Is(err, ErrSubjectNameExists) {
+			log.Printf("createSubjectOnDemand: already exists user=%s subject=%s", userID, name)
+			return s.subjects.GetByName(userID, name)
+		}
+		log.Printf("createSubjectOnDemand: failed user=%s subject=%s err=%v", userID, name, err)
+		return Subject{}, err
+	}
+	log.Printf("createSubjectOnDemand: created subjectID=%s user=%s", created.ID, userID)
+	return created, nil
 }

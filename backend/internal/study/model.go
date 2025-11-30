@@ -8,6 +8,7 @@ type StudySession struct {
 	UserID          string    `json:"userId"`
 	SubjectID       string    `json:"subjectId"`
 	Subject         string    `json:"subject"`
+	SubjectColor    string    `json:"subjectColor,omitempty"`
 	Notes           string    `json:"notes"`
 	Reflection      string    `json:"reflection"`
 	StartTime       time.Time `json:"startTime"`
