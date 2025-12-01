@@ -108,12 +108,13 @@ func (s *Service) BuildSummary(userID string) (ProgressSummary, error) {
 
 		stat, ok := dailyMap[key]
 		if !ok {
-			stat = &DailyStat{Date: key}
+			stat = &DailyStat{Date: key, BySubject: make(map[string]int)}
 			dailyMap[key] = stat
 		}
 		stat.TotalMinutes += session.DurationMinutes
 		stat.SessionCount++
 		stat.AverageMinutes = float64(stat.TotalMinutes) / float64(stat.SessionCount)
+		stat.BySubject[session.Subject] += session.DurationMinutes
 
 		if day.Equal(startToday) {
 			summary.TodayMinutes += session.DurationMinutes
@@ -131,7 +132,7 @@ func (s *Service) BuildSummary(userID string) (ProgressSummary, error) {
 	}
 
 	summary.DailyTrend = buildDailyTrend(startToday, dailyMap)
-	summary.StreakDays = calculateStreak(startToday, dailyMap)
+	summary.StreakDays = calculateRollingStreak(sessions, time.Now().UTC())
 
 	return summary, nil
 }
@@ -269,6 +270,9 @@ func buildDailyTrend(startToday time.Time, daily map[string]*DailyStat) []DailyS
 		day := startToday.AddDate(0, 0, -i)
 		key := day.Format(dayLayout)
 		if stat, ok := daily[key]; ok {
+			if stat.BySubject == nil {
+				stat.BySubject = make(map[string]int)
+			}
 			trend = append(trend, *stat)
 		} else {
 			trend = append(trend, DailyStat{
@@ -276,24 +280,43 @@ func buildDailyTrend(startToday time.Time, daily map[string]*DailyStat) []DailyS
 				TotalMinutes:   0,
 				SessionCount:   0,
 				AverageMinutes: 0,
+				BySubject:      map[string]int{},
 			})
 		}
 	}
 	return trend
 }
 
-func calculateStreak(startToday time.Time, daily map[string]*DailyStat) int {
+func calculateRollingStreak(sessions []StudySession, now time.Time) int {
+	if len(sessions) == 0 {
+		return 0
+	}
+
+	// Sessions are ordered newest-first by repository. Use end time when available.
+	lastActive := now
 	streak := 0
-	cursor := startToday
-	for {
-		key := cursor.Format(dayLayout)
-		stat, ok := daily[key]
-		if !ok || stat.TotalMinutes == 0 {
+
+	for _, session := range sessions {
+		sessionEnd := session.EndTime
+		if sessionEnd.IsZero() {
+			sessionEnd = session.StartTime
+		}
+		sessionEnd = sessionEnd.UTC()
+
+		if sessionEnd.After(lastActive) {
+			sessionEnd = lastActive
+		}
+
+		gap := lastActive.Sub(sessionEnd)
+		if gap > 24*time.Hour {
+			// If we haven't incremented yet, no activity in the last 24h.
 			break
 		}
+
 		streak++
-		cursor = cursor.AddDate(0, 0, -1)
+		lastActive = sessionEnd
 	}
+
 	return streak
 }
 

@@ -33,12 +33,20 @@ const historyEndInput = document.getElementById("history-end-date");
 const historyClearBtn = document.getElementById("history-clear-filters");
 const historyListEl = document.getElementById("history-list");
 const historyCountEl = document.getElementById("history-count");
+const historySelectToggle = document.getElementById("history-select-toggle");
+const historySelectMenu = document.getElementById("history-select-menu");
+const historySelectLabel = document.getElementById("history-select-label");
+const trendModeSelect = document.getElementById("trend-mode");
+const trendSelectToggle = document.getElementById("trend-select-toggle");
+const trendSelectMenu = document.getElementById("trend-select-menu");
+const trendSelectLabel = document.getElementById("trend-select-label");
 const loginForm = document.getElementById("login-form");
 const registerForm = document.getElementById("register-form");
 const loginErrorEl = document.getElementById("login-error");
 const registerErrorEl = document.getElementById("register-error");
 const streakChipEl = document.getElementById("streak-chip");
 const streakCountEl = document.getElementById("streak-count");
+const liveTrackMuteBtn = document.getElementById("live-track-mute");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 const showRegisterBtn = document.getElementById("show-register-btn");
@@ -99,6 +107,9 @@ let currentUser = null;
 let isAuthenticated = false;
 let dataLoaded = false;
 let pendingView = localStorage.getItem("activeView") || "dashboard";
+let activeView = null;
+let trendChartMode = localStorage.getItem("trendChartMode") || "stacked";
+let isLiveTrackMuted = false;
 
 const defaultSubjectColor = liveTrackColorInput?.value || "#6366f1";
 const LIVE_TRACK_MIN_MS = 60 * 1000;
@@ -211,6 +222,7 @@ function ensureAudioContext() {
 }
 
 function playClickSound(frequency = 1250, duration = 0.06, volume = 0.12) {
+  if (isLiveTrackMuted) return;
   const ctx = ensureAudioContext();
   if (!ctx) {
     return;
@@ -310,6 +322,10 @@ function updateLiveTrackTimerText() {
 
 function handleLiveTrackTick() {
   updateLiveTrackTimerText();
+  const elapsed = getLiveTrackElapsedMs();
+  if (liveTrackLogBtn && !liveTrackState.isSubmitting) {
+    liveTrackLogBtn.disabled = elapsed <= 0;
+  }
   if (liveTrackState.status === "running") {
     playClickSound(750, 0.02, 0.08);
   }
@@ -324,8 +340,6 @@ function handleLiveTrackTick() {
     showMessage(liveTrackMessageEl, "Timer finished! Tap Save to keep it.");
     updateLiveTrackUI();
   }
-  // Keep controls (Log button, pause state) in sync while the timer runs.
-  updateLiveTrackUI();
 }
 
 function updateLiveTrackUI() {
@@ -617,7 +631,7 @@ async function handleLiveTrackLog() {
       body: JSON.stringify(payload),
     });
     liveTrackMessageEl?.classList.add("success");
-    showMessage(liveTrackMessageEl, "Session saved to your log.");
+    showMessage(liveTrackMessageEl, "Session saved.");
     resetLiveTrackState({ preserveMessage: true });
     await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
   } catch (error) {
@@ -640,6 +654,10 @@ function initLiveTrack() {
   liveTrackStartBtn.addEventListener("click", handleLiveTrackStart);
   liveTrackPauseBtn?.addEventListener("click", toggleLiveTrackPause);
   liveTrackLogBtn?.addEventListener("click", handleLiveTrackLog);
+  liveTrackMuteBtn?.addEventListener("click", () => {
+    isLiveTrackMuted = !isLiveTrackMuted;
+    updateLiveTrackMuteUI();
+  });
   if (liveTrackModeButtons.length) {
     liveTrackModeButtons.forEach((button) => {
       button.addEventListener("click", () => selectLiveTrackMode(button.dataset.liveTrackMode));
@@ -890,10 +908,65 @@ function renderStreakChip(streakDays) {
   const days = Number.isFinite(streakDays) ? streakDays : 0;
   streakCountEl.textContent = days;
   const suffix = days === 1 ? "day streak" : "day streak";
+  const iconEl = streakChipEl.querySelector(".streak-icon");
   streakChipEl.querySelector(".streak-text").textContent = `${days} ${suffix}`;
   const isHot = days > 0;
   streakChipEl.classList.toggle("is-cold", !isHot);
+  if (iconEl) {
+    iconEl.textContent = isHot ? "🔥" : "";
+  }
   streakChipEl.setAttribute("aria-label", isHot ? `${days} day streak active` : "No active streak");
+}
+
+function updateLiveTrackMuteUI() {
+  if (!liveTrackMuteBtn) return;
+  liveTrackMuteBtn.classList.toggle("is-muted", isLiveTrackMuted);
+  liveTrackMuteBtn.setAttribute("aria-pressed", String(isLiveTrackMuted));
+  liveTrackMuteBtn.setAttribute("aria-label", isLiveTrackMuted ? "Unmute sounds" : "Mute sounds");
+}
+
+function renderTrendModeSelect() {
+  if (!trendModeSelect || !trendSelectMenu || !trendSelectLabel) return;
+  const options = Array.from(trendModeSelect.options || []);
+  const current = trendModeSelect.value || "stacked";
+  trendSelectMenu.innerHTML = options
+    .map(
+      (opt) =>
+        `<li role="option" data-value="${escapeHTML(opt.value)}" aria-selected="${opt.value === current}">${escapeHTML(
+          opt.textContent || opt.value
+        )}</li>`
+    )
+    .join("");
+  const active = options.find((opt) => opt.value === current);
+  trendSelectLabel.textContent = active ? active.textContent : "By subject (stacked bar)";
+}
+
+function closeTrendSelect() {
+  if (!trendSelectMenu || !trendSelectToggle) return;
+  trendSelectMenu.classList.remove("is-open");
+  trendSelectToggle.setAttribute("aria-expanded", "false");
+}
+
+function renderCustomHistorySelect() {
+  if (!historySelectMenu || !historySelectLabel || !historySubjectFilter) return;
+  const options = Array.from(historySubjectFilter.options || []);
+  const current = historySubjectFilter.value || "all";
+  historySelectMenu.innerHTML = options
+    .map(
+      (opt) =>
+        `<li role="option" data-value="${escapeHTML(opt.value)}" aria-selected="${opt.value === current}">${escapeHTML(
+          opt.textContent || opt.value
+        )}</li>`
+    )
+    .join("");
+  const active = options.find((opt) => opt.value === current);
+  historySelectLabel.textContent = active ? active.textContent : "All subjects";
+}
+
+function closeHistorySelect() {
+  if (!historySelectMenu || !historySelectToggle) return;
+  historySelectMenu.classList.remove("is-open");
+  historySelectToggle.setAttribute("aria-expanded", "false");
 }
 
 function renderSubjectBreakdown(bySubject) {
@@ -990,37 +1063,92 @@ function updateTrendChart(trend) {
   }
 
   const labels = trend.map((entry) => formatTrendLabel(entry.date));
-  const data = trend.map((entry) => entry.totalMinutes ?? 0);
+
+  const subjectsSet = new Set();
+  trend.forEach((entry) => {
+    if (entry.bySubject) {
+      Object.keys(entry.bySubject).forEach((name) => subjectsSet.add(name));
+    }
+  });
+
+  const subjectNames = Array.from(subjectsSet);
+  const hasSubjectBreakdown = subjectNames.length > 0;
+
+  let datasets = [];
+  let chartType = "bar";
+  const mode = trendChartMode;
+
+  if (mode === "stacked" && hasSubjectBreakdown) {
+    chartType = "bar";
+    datasets = subjectNames.map((name, index) => {
+      const color = getSubjectColor(name, index);
+      const data = trend.map((entry) => {
+        if (entry.bySubject && typeof entry.bySubject[name] === "number") {
+          return entry.bySubject[name];
+        }
+        return 0;
+      });
+      return {
+        label: name,
+        data,
+        backgroundColor: color,
+        stack: "trend",
+        borderRadius: 6,
+        borderSkipped: false,
+      };
+    });
+  } else if (mode === "line") {
+    chartType = "line";
+    const data = trend.map((entry) => entry.totalMinutes ?? 0);
+    datasets = [
+      {
+        label: "Minutes",
+        data,
+        borderColor: "#6366f1",
+        backgroundColor: "rgba(99, 102, 241, 0.2)",
+        tension: 0.3,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        fill: false,
+      },
+    ];
+  } else {
+    chartType = "bar";
+    const data = trend.map((entry) => entry.totalMinutes ?? 0);
+    datasets = [
+      {
+        label: "Minutes",
+        data,
+        backgroundColor: "#6366f1",
+        borderRadius: 6,
+        borderSkipped: false,
+        stack: "trend",
+      },
+    ];
+  }
 
   trendChart = new Chart(trendChartCanvas, {
-    type: "line",
+    type: chartType,
     data: {
       labels,
-      datasets: [
-        {
-          label: "Minutes",
-          data,
-          borderColor: "#6366f1",
-          backgroundColor: "#6366f1",
-          fill: false,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-        },
-      ],
+      datasets,
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      interaction: {
-        mode: "index",
-        intersect: false,
-      },
+      interaction: { mode: "index", intersect: false },
       plugins: {
-        legend: { display: false },
+        legend: { display: datasets.length > 1 },
         tooltip: {
-          displayColors: false,
+          displayColors: true,
+          callbacks: {
+            label(context) {
+              const value = chartType === "line" ? context.parsed.y || 0 : context.parsed.y || 0;
+              const label = context.dataset.label || "Minutes";
+              return `${label}: ${value} min`;
+            },
+          },
         },
       },
       scales: {
@@ -1031,6 +1159,7 @@ function updateTrendChart(trend) {
         },
         x: {
           grid: { display: false },
+          stacked: chartType === "bar",
         },
       },
     },
@@ -1133,9 +1262,12 @@ function renderSubjectSuggestions(pair) {
   }
   panel.innerHTML = filtered
     .slice(0, 8)
-    .map(
-      (name) => `<button type="button" data-value="${escapeHTML(name)}">${escapeHTML(name)}</button>`
-    )
+    .map((name, index) => {
+      const color = getSubjectColor(name, index);
+      return `<button type="button" data-value="${escapeHTML(
+        name
+      )}" style="--suggestion-color:${color}">${escapeHTML(name)}</button>`;
+    })
     .join("");
   panel.hidden = false;
 }
@@ -1276,6 +1408,7 @@ function updateHistorySubjectOptions(subjectNames) {
   if (existing && subjectNames.includes(existing)) {
     historySubjectFilter.value = existing;
   }
+  renderCustomHistorySelect();
 }
 
 function getFilteredSessions() {
@@ -1311,6 +1444,7 @@ function getFilteredSessions() {
 
 function renderHistory() {
   if (!historyListEl) return;
+  closeHistorySelect();
   const filtered = getFilteredSessions();
   const totalCount = Array.isArray(sessions) ? sessions.length : 0;
 
@@ -1335,7 +1469,6 @@ function renderHistory() {
   historyListEl.innerHTML = filtered
     .map((session, index) => {
       const subjectName = escapeHTML(session.subject || "Unknown");
-      const notes = escapeHTML(session.notes || "No notes");
       const reflection = session.reflection
         ? `<div class="meta italic">Reflection: ${escapeHTML(session.reflection)}</div>`
         : "";
@@ -1354,7 +1487,6 @@ function renderHistory() {
             session.startTime,
             session.endTime
           )}</div>
-          <div class="meta">Notes: ${notes}</div>
           ${reflection}
           <div class="session-actions">
             <button type="button" class="secondary delete-session" data-id="${session.id}">Delete</button>
@@ -1525,6 +1657,10 @@ function activateView(name, options = {}) {
     return;
   }
 
+  if (!force && activeView && activeView === name) {
+    return;
+  }
+
   let targetView = name;
 
   if (!force) {
@@ -1550,6 +1686,8 @@ function activateView(name, options = {}) {
     btn.classList.toggle("active", isActive);
     btn.setAttribute("aria-selected", String(isActive));
   });
+
+  activeView = targetView;
 
   if (!skipSave && targetView !== "auth") {
     pendingView = targetView;
@@ -1761,7 +1899,7 @@ subjectsListEl.addEventListener("input", (event) => {
 });
 
 const savedView = localStorage.getItem("activeView") || "dashboard";
-activateView(savedView);
+activateView(savedView, { force: true });
 
 navButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -1784,7 +1922,93 @@ if (historyClearBtn) {
     if (historySubjectFilter) historySubjectFilter.value = "all";
     if (historyStartInput) historyStartInput.value = "";
     if (historyEndInput) historyEndInput.value = "";
+    if (historySelectLabel) historySelectLabel.textContent = "All subjects";
+    closeHistorySelect();
     renderHistory();
+  });
+}
+if (historySelectToggle && historySelectMenu && historySubjectFilter) {
+  historySelectToggle.addEventListener("click", () => {
+    const isOpen = historySelectMenu.classList.contains("is-open");
+    if (isOpen) {
+      closeHistorySelect();
+    } else {
+      historySelectMenu.classList.add("is-open");
+      historySelectToggle.setAttribute("aria-expanded", "true");
+    }
+  });
+
+  historySelectMenu.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const value = target.dataset.value;
+    if (!value || !historySubjectFilter) return;
+    historySubjectFilter.value = value;
+    renderCustomHistorySelect();
+    renderHistory();
+    closeHistorySelect();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!historySelectMenu || !historySelectToggle) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (
+      !historySelectMenu.contains(target) &&
+      !historySelectToggle.contains(target) &&
+      historySelectMenu.classList.contains("is-open")
+    ) {
+      closeHistorySelect();
+    }
+  });
+}
+
+if (trendModeSelect) {
+  trendModeSelect.value = trendChartMode;
+  renderTrendModeSelect();
+  trendModeSelect.addEventListener("change", () => {
+    trendChartMode = trendModeSelect.value;
+    localStorage.setItem("trendChartMode", trendChartMode);
+    renderTrendModeSelect();
+    updateTrendChart(summaryData?.dailyTrend || []);
+  });
+}
+
+if (trendSelectToggle && trendSelectMenu && trendModeSelect) {
+  trendSelectToggle.addEventListener("click", () => {
+    const isOpen = trendSelectMenu.classList.contains("is-open");
+    if (isOpen) {
+      closeTrendSelect();
+    } else {
+      trendSelectMenu.classList.add("is-open");
+      trendSelectToggle.setAttribute("aria-expanded", "true");
+    }
+  });
+
+  trendSelectMenu.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const value = target.dataset.value;
+    if (!value || !trendModeSelect) return;
+    trendModeSelect.value = value;
+    trendChartMode = value;
+    localStorage.setItem("trendChartMode", trendChartMode);
+    renderTrendModeSelect();
+    updateTrendChart(summaryData?.dailyTrend || []);
+    closeTrendSelect();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!trendSelectMenu || !trendSelectToggle) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (
+      !trendSelectMenu.contains(target) &&
+      !trendSelectToggle.contains(target) &&
+      trendSelectMenu.classList.contains("is-open")
+    ) {
+      closeTrendSelect();
+    }
   });
 }
 
@@ -1864,6 +2088,7 @@ if (logoutBtn) {
 async function initialize() {
   setDefaultTimes();
   setAuthMode("login");
+  updateLiveTrackMuteUI();
   await loadCurrentUser();
   if (isAuthenticated) {
     await loadAuthedData();

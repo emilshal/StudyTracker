@@ -33,8 +33,9 @@ type ProgressSummary struct {
 
 // DailyStat represents aggregated stats for a single calendar day.
 type DailyStat struct {
-	Date           string  `json:"date"`
-	TotalMinutes   int     `json:"totalMinutes"`
-	SessionCount   int     `json:"sessionCount"`
-	AverageMinutes float64 `json:"averageMinutes"`
+	Date           string         `json:"date"`
+	TotalMinutes   int            `json:"totalMinutes"`
+	SessionCount   int            `json:"sessionCount"`
+	AverageMinutes float64        `json:"averageMinutes"`
+	BySubject      map[string]int `json:"bySubject,omitempty"`
 }

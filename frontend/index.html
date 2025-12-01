@@ -5,6 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Study Tracker</title>
+    <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg" />
     <link rel="stylesheet" href="assets/css/styles.css" />
   </head>
   <body>
@@ -83,6 +84,21 @@
 
       <section class="view active" data-view="dashboard" aria-label="Dashboard">
         <section class="card live-track-card live-track-card--full" aria-labelledby="live-track-title">
+          <button type="button" id="live-track-mute" class="live-track-mute" aria-pressed="false" aria-label="Mute sounds">
+            <span class="mute-icon mute-icon-on" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation">
+                <path d="M5 9v6h4l5 5V4l-5 5H5z" fill="currentColor"></path>
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.06c1.48-.74 2.5-2.26 2.5-4.03z" fill="currentColor"></path>
+              </svg>
+            </span>
+            <span class="mute-icon mute-icon-off" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation">
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.5 2.5z" fill="currentColor"></path>
+                <path d="M19 12c0 2.54-1.19 4.79-3.04 6.25l1.41 1.41A8.966 8.966 0 0021 12c0-2.76-1.26-5.23-3.24-6.86l-1.4 1.4A6.978 6.978 0 0119 12z" fill="currentColor"></path>
+                <path d="M4.41 3.86 3 5.27l5.73 5.73H5v6h4l5 5v-6.73l4.99 4.99 1.41-1.41z" fill="currentColor"></path>
+              </svg>
+            </span>
+          </button>
           <div class="live-track-hero">
             <h2 id="live-track-title">Live Track</h2>
             <p class="live-track-subtitle">Tap start, stay focused, and let the tracker log the rest.</p>
@@ -231,9 +247,16 @@
             <div class="history-filters">
               <label>
                 Subject
-                <select id="history-subject-filter">
-                  <option value="all">All subjects</option>
-                </select>
+                <div class="history-select" data-history-select>
+                  <button type="button" id="history-select-toggle" class="history-select__toggle" aria-haspopup="listbox" aria-expanded="false">
+                    <span id="history-select-label">All subjects</span>
+                    <span class="history-select__chevron" aria-hidden="true"></span>
+                  </button>
+                  <ul id="history-select-menu" class="history-select__menu" role="listbox"></ul>
+                  <select id="history-subject-filter" class="history-select__native" aria-hidden="true" tabindex="-1">
+                    <option value="all">All subjects</option>
+                  </select>
+                </div>
               </label>
               <label>
                 From
@@ -263,6 +286,21 @@
           <div class="chart-header">
             <h2 id="charts-title">Study Trends</h2>
             <p class="chart-subtitle">Visualize your focus across subjects and days.</p>
+            <div class="chart-controls">
+              <label for="trend-mode">View</label>
+              <div class="history-select trend-select" data-trend-select>
+                <button type="button" id="trend-select-toggle" class="history-select__toggle" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="trend-select-label">By subject (stacked bar)</span>
+                  <span class="history-select__chevron" aria-hidden="true"></span>
+                </button>
+                <ul id="trend-select-menu" class="history-select__menu" role="listbox"></ul>
+                <select id="trend-mode" class="history-select__native" aria-hidden="true" tabindex="-1">
+                  <option value="stacked">By subject (stacked bar)</option>
+                  <option value="totalBar">Total (bar)</option>
+                  <option value="line">Total (line)</option>
+                </select>
+              </div>
+            </div>
           </div>
           <div class="chart-container">
             <h3>Time Spent per Subject</h3>

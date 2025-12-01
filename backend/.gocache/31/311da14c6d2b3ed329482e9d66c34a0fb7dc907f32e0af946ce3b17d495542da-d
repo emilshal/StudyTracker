@@ -1,0 +1,8 @@
+./errors.go
+./handler.go
+./model.go
+./repositories.go
+./service.go
+./session_repository_sql.go
+./subject.go
+./subject_repository_sql.go
