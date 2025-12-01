@@ -6,5 +6,5 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="14" fill="url(#g)"/>
-  <text x="50%" y="54%" text-anchor="middle" font-family="Inter, -apple-system, sans-serif" font-size="32" font-weight="800" fill="#0f172a">S</text>
+  <text x="50%" y="56%" text-anchor="middle" font-family="Inter, -apple-system, sans-serif" font-size="38" font-weight="800" fill="#0f172a">S</text>
 </svg>
