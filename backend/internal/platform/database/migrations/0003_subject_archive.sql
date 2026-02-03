@@ -1,0 +1,2 @@
+ALTER TABLE subjects
+ADD COLUMN archived_at TIMESTAMP;

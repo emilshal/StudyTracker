@@ -76,6 +76,8 @@ func (s *Service) BuildSummary(userID string) (ProgressSummary, error) {
 		return ProgressSummary{}, err
 	}
 
+	sessions = s.filterSessionsToActiveSubjects(userID, sessions)
+
 	summary := ProgressSummary{
 		BySubject: make(map[string]int),
 	}
@@ -135,6 +137,46 @@ func (s *Service) BuildSummary(userID string) (ProgressSummary, error) {
 	summary.StreakDays = calculateRollingStreak(sessions, time.Now().UTC())
 
 	return summary, nil
+}
+
+func (s *Service) filterSessionsToActiveSubjects(userID string, sessions []StudySession) []StudySession {
+	if len(sessions) == 0 || s.subjects == nil || userID == "" {
+		return sessions
+	}
+
+	subjects, err := s.subjects.List(userID)
+	if err != nil || len(subjects) == 0 {
+		return nil
+	}
+
+	activeIDs := make(map[string]struct{}, len(subjects))
+	activeNames := make(map[string]string, len(subjects))
+	for _, subject := range subjects {
+		if subject.ID != "" {
+			activeIDs[subject.ID] = struct{}{}
+		}
+		name := strings.TrimSpace(subject.Name)
+		if name != "" {
+			activeNames[strings.ToLower(name)] = name
+		}
+	}
+
+	filtered := make([]StudySession, 0, len(sessions))
+	for _, session := range sessions {
+		if session.SubjectID != "" {
+			if _, ok := activeIDs[session.SubjectID]; ok {
+				filtered = append(filtered, session)
+			}
+			continue
+		}
+
+		if canonical, ok := activeNames[strings.ToLower(strings.TrimSpace(session.Subject))]; ok {
+			session.Subject = canonical
+			filtered = append(filtered, session)
+		}
+	}
+
+	return filtered
 }
 
 // Subject operations ----------------------------------------------------------
@@ -292,29 +334,47 @@ func calculateRollingStreak(sessions []StudySession, now time.Time) int {
 		return 0
 	}
 
-	// Sessions are ordered newest-first by repository. Use end time when available.
-	lastActive := now
+	// Sessions are ordered newest-first (start_time desc). We count contiguous
+	// 24h windows with any activity, without double-counting multiple sessions
+	// in the same window.
+	windowEnd := now.UTC()
 	streak := 0
+	idx := 0
 
-	for _, session := range sessions {
-		sessionEnd := session.EndTime
-		if sessionEnd.IsZero() {
-			sessionEnd = session.StartTime
+	for {
+		if idx >= len(sessions) {
+			break
 		}
-		sessionEnd = sessionEnd.UTC()
+		windowStart := windowEnd.Add(-24 * time.Hour)
 
-		if sessionEnd.After(lastActive) {
-			sessionEnd = lastActive
+		found := false
+		for idx < len(sessions) {
+			sessionEnd := sessions[idx].EndTime
+			if sessionEnd.IsZero() {
+				sessionEnd = sessions[idx].StartTime
+			}
+			sessionEnd = sessionEnd.UTC()
+
+			if sessionEnd.After(windowEnd) {
+				sessionEnd = windowEnd
+			}
+
+			if sessionEnd.Before(windowStart) {
+				// This session is before the current window; stop scanning.
+				break
+			}
+
+			// Session falls within the window.
+			found = true
+			idx++
 		}
 
-		gap := lastActive.Sub(sessionEnd)
-		if gap > 24*time.Hour {
-			// If we haven't incremented yet, no activity in the last 24h.
+		if !found {
 			break
 		}
 
 		streak++
-		lastActive = sessionEnd
+		windowEnd = windowStart
 	}
 
 	return streak

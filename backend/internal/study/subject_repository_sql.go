@@ -27,12 +27,13 @@ func NewSQLSubjectRepository(db *sql.DB) *SQLSubjectRepository {
 
 func (r *SQLSubjectRepository) Create(subject Subject) (Subject, error) {
 	const query = `
-		INSERT INTO subjects (id, user_id, name, color, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO subjects (id, user_id, name, color, created_at, updated_at, archived_at)
+		VALUES (?, ?, ?, ?, ?, ?, NULL)
 		ON CONFLICT(name) DO UPDATE SET
 			user_id = excluded.user_id,
 			color = excluded.color,
-			updated_at = excluded.updated_at
+			updated_at = excluded.updated_at,
+			archived_at = NULL
 		RETURNING id, user_id, name, color, created_at, updated_at;
 	`
 
@@ -61,7 +62,7 @@ func (r *SQLSubjectRepository) Update(subject Subject) (Subject, error) {
 	const query = `
 		UPDATE subjects
 		SET name = ?, color = ?, updated_at = ?
-		WHERE id = ? AND user_id = ?;
+		WHERE id = ? AND user_id = ? AND archived_at IS NULL;
 	`
 
 	res, err := r.db.ExecContext(
@@ -89,7 +90,11 @@ func (r *SQLSubjectRepository) Update(subject Subject) (Subject, error) {
 }
 
 func (r *SQLSubjectRepository) Delete(userID, id string) error {
-	const query = `DELETE FROM subjects WHERE id = ? AND user_id = ?;`
+	const query = `
+		UPDATE subjects
+		SET archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND user_id = ? AND archived_at IS NULL;
+	`
 
 	res, err := r.db.ExecContext(context.Background(), r.rebind(query), id, userID)
 	if err != nil {
@@ -122,7 +127,7 @@ func (r *SQLSubjectRepository) List(userID string) ([]Subject, error) {
 		     AND LOWER(ss.subject_name) = LOWER(s.name)
 		   )
 		 )
-		WHERE s.user_id = ?
+		WHERE s.user_id = ? AND s.archived_at IS NULL
 		GROUP BY s.id, s.user_id, s.name, s.color, s.created_at, s.updated_at
 		ORDER BY LOWER(s.name) ASC;
 	`
@@ -180,7 +185,7 @@ func (r *SQLSubjectRepository) Get(userID, id string) (Subject, error) {
 	const query = `
 		SELECT id, user_id, name, color, created_at, updated_at
 		FROM subjects
-		WHERE id = ? AND user_id = ?;
+		WHERE id = ? AND user_id = ? AND archived_at IS NULL;
 	`
 
 	var subject Subject
@@ -214,7 +219,7 @@ func (r *SQLSubjectRepository) GetByName(userID, name string) (Subject, error) {
 	const query = `
 		SELECT id, user_id, name, color, created_at, updated_at
 		FROM subjects
-		WHERE user_id = ? AND LOWER(name) = LOWER(?);
+		WHERE user_id = ? AND LOWER(name) = LOWER(?) AND archived_at IS NULL;
 	`
 
 	var subject Subject

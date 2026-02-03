@@ -174,6 +174,7 @@
           <div class="live-track-controls hidden" id="live-track-controls">
             <button type="button" class="secondary" id="live-track-pause" disabled>Pause</button>
             <button type="button" id="live-track-log" disabled>Save</button>
+            <button type="button" class="danger" id="live-track-delete" disabled>Delete</button>
           </div>
           <p id="live-track-message" class="form-message hidden"></p>
         </section>
@@ -300,14 +301,29 @@
                   <option value="line">Total (line)</option>
                 </select>
               </div>
+              <label for="trend-range">Range</label>
+              <div class="history-select trend-range-select" data-trend-range-select>
+                <button type="button" id="trend-range-toggle" class="history-select__toggle" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="trend-range-label">Last 14 days</span>
+                  <span class="history-select__chevron" aria-hidden="true"></span>
+                </button>
+                <ul id="trend-range-menu" class="history-select__menu" role="listbox"></ul>
+                <select id="trend-range" class="history-select__native" aria-hidden="true" tabindex="-1">
+                  <option value="14d">Last 14 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="3m">Last 3 months</option>
+                  <option value="6m">Last 6 months</option>
+                  <option value="all">All time</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="chart-container">
             <h3>Time Spent per Subject</h3>
             <canvas id="subject-chart" height="200"></canvas>
           </div>
-          <div class="chart-container">
-            <h3>Last 14 Days</h3>
+          <div class="chart-container chart-container--trend">
+            <h3 id="trend-range-title">Last 14 days</h3>
             <canvas id="trend-chart" height="200"></canvas>
           </div>
         </section>
@@ -354,6 +370,26 @@
     <datalist id="subjects"></datalist>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <div
+      class="modal"
+      id="confirm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="confirm-modal-title"
+      aria-describedby="confirm-modal-message"
+    >
+      <div class="modal__overlay" data-confirm-close></div>
+      <div class="modal__dialog card" role="document">
+        <h2 id="confirm-modal-title">Confirm</h2>
+        <p class="modal__message" id="confirm-modal-message"></p>
+        <div class="modal__actions">
+          <button type="button" class="secondary" id="confirm-modal-cancel">Cancel</button>
+          <button type="button" class="danger" id="confirm-modal-confirm">Delete</button>
+        </div>
+      </div>
+    </div>
+
     <script src="assets/js/app.js"></script>
   </body>
 </html>

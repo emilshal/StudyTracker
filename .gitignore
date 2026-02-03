@@ -9,6 +9,7 @@ frontend/dist/
 
 # Go build cache (keep go.sum tracked)
 backend/.cache/
+backend/.gocache/
 
 # SQLite data
 backend/data/

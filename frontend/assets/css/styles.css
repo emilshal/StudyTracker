@@ -258,6 +258,80 @@ button:hover {
   background: rgba(148, 163, 184, 0.28);
 }
 
+.danger {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.danger:hover {
+  transform: translateY(-1.5px);
+  background: #dc2626;
+  box-shadow: 0 12px 24px rgba(239, 68, 68, 0.28);
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.16s ease, visibility 0.16s ease;
+}
+
+.modal.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.modal__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.modal.is-open .modal__overlay {
+  opacity: 1;
+}
+
+.modal__dialog {
+  position: relative;
+  width: min(520px, 100%);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  transform: translateY(10px) scale(0.98);
+  transition: transform 0.18s ease;
+}
+
+.modal.is-open .modal__dialog {
+  transform: translateY(0) scale(1);
+}
+
+.modal__message {
+  margin: 0;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.modal__actions button {
+  min-width: 120px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -836,6 +910,7 @@ button:hover {
   flex-wrap: wrap;
   color: #cbd5f5;
   font-size: 0.9rem;
+  margin-bottom: 0.75rem;
 }
 
 .subject-quick-palette__colors {
@@ -1107,6 +1182,17 @@ button:hover {
   width: 100%;
   height: 320px;
   max-height: 360px;
+}
+
+.chart-container--trend canvas {
+  height: 440px;
+  max-height: 520px;
+  display: block;
+}
+
+.chart-container--trend {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .history-card {
@@ -1511,11 +1597,10 @@ button:hover {
   }
 
   .chart-card {
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-direction: column;
   }
 
   .chart-card .chart-container {
-    flex: 1 1 46%;
+    flex: 1 1 100%;
   }
 }

@@ -157,23 +157,27 @@ func (h *Handler) setAuthCookie(c *fiber.Ctx, session Session) {
 	if seconds <= 0 {
 		seconds = int(24 * time.Hour / time.Second)
 	}
+	secure := h.cookieSecure(c)
 	c.Cookie(&fiber.Cookie{
 		Name:     h.cookieName,
 		Value:    session.ID,
 		Path:     "/",
 		HTTPOnly: true,
-		SameSite: "Lax",
-		Secure:   strings.HasPrefix(h.frontendURL, "https://"),
+		SameSite: h.cookieSameSite(secure),
+		Secure:   secure,
 		MaxAge:   seconds,
 	})
 }
 
 func (h *Handler) clearAuthCookie(c *fiber.Ctx) {
+	secure := h.cookieSecure(c)
 	c.Cookie(&fiber.Cookie{
 		Name:     h.cookieName,
 		Value:    "",
 		Path:     "/",
 		HTTPOnly: true,
+		SameSite: h.cookieSameSite(secure),
+		Secure:   secure,
 		MaxAge:   -1,
 	})
 }
@@ -220,4 +224,23 @@ func (h *Handler) resolveRedirectURL(c *fiber.Ctx) string {
 		return requestBase + "/oauth/callback"
 	}
 	return ""
+}
+
+func (h *Handler) cookieSecure(c *fiber.Ctx) bool {
+	// Prefer configured frontend URL; fall back to forwarded proto or request URL.
+	if strings.HasPrefix(h.frontendURL, "https://") {
+		return true
+	}
+	if proto := strings.ToLower(c.Get("X-Forwarded-Proto")); proto == "https" {
+		return true
+	}
+	return strings.HasPrefix(c.BaseURL(), "https://")
+}
+
+func (h *Handler) cookieSameSite(secure bool) string {
+	// Allow cross-site cookies (e.g., HTTPS ngrok frontend hitting API) when secure.
+	if secure {
+		return "None"
+	}
+	return "Lax"
 }

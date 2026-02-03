@@ -40,6 +40,11 @@ const trendModeSelect = document.getElementById("trend-mode");
 const trendSelectToggle = document.getElementById("trend-select-toggle");
 const trendSelectMenu = document.getElementById("trend-select-menu");
 const trendSelectLabel = document.getElementById("trend-select-label");
+const trendRangeSelect = document.getElementById("trend-range");
+const trendRangeToggle = document.getElementById("trend-range-toggle");
+const trendRangeMenu = document.getElementById("trend-range-menu");
+const trendRangeLabel = document.getElementById("trend-range-label");
+const trendRangeTitle = document.getElementById("trend-range-title");
 const loginForm = document.getElementById("login-form");
 const registerForm = document.getElementById("register-form");
 const loginErrorEl = document.getElementById("login-error");
@@ -60,6 +65,7 @@ const liveTrackStartBtn = document.getElementById("live-track-start");
 const liveTrackPauseBtn = document.getElementById("live-track-pause");
 const liveTrackTriggerBtn = document.getElementById("live-track-trigger");
 const liveTrackLogBtn = document.getElementById("live-track-log");
+const liveTrackDeleteBtn = document.getElementById("live-track-delete");
 const liveTrackCircle = document.getElementById("live-track-circle");
 const liveTrackTimerWrapper = document.getElementById("live-track-timer-wrapper");
 const liveTrackModeEl = document.getElementById("live-track-mode");
@@ -78,8 +84,32 @@ const subjectSearchInput = document.getElementById("subject-search");
 const subjectRefreshBtn = document.getElementById("subject-refresh");
 const subjectPaletteEl = document.getElementById("subject-palette");
 const liveTrackSubjectSuggestions = document.getElementById("live-track-suggestions");
+const confirmModalEl = document.getElementById("confirm-modal");
+const confirmModalTitleEl = document.getElementById("confirm-modal-title");
+const confirmModalMessageEl = document.getElementById("confirm-modal-message");
+const confirmModalCancelBtn = document.getElementById("confirm-modal-cancel");
+const confirmModalConfirmBtn = document.getElementById("confirm-modal-confirm");
 const suggestionPairs = [];
 let audioCtx = null;
+let hasUserGesture = false;
+let confirmModalResolve = null;
+let confirmModalLastFocused = null;
+let confirmModalCleanup = null;
+
+window.addEventListener(
+  "pointerdown",
+  () => {
+    hasUserGesture = true;
+  },
+  { once: true, passive: true }
+);
+window.addEventListener(
+  "keydown",
+  () => {
+    hasUserGesture = true;
+  },
+  { once: true }
+);
 
 if (manualSubjectInput) {
   manualSubjectInput.setAttribute("list", "subjects");
@@ -109,6 +139,7 @@ let dataLoaded = false;
 let pendingView = localStorage.getItem("activeView") || "dashboard";
 let activeView = null;
 let trendChartMode = localStorage.getItem("trendChartMode") || "stacked";
+let trendRange = localStorage.getItem("trendRange") || "14d";
 let isLiveTrackMuted = false;
 
 const defaultSubjectColor = liveTrackColorInput?.value || "#6366f1";
@@ -145,6 +176,224 @@ const fallbackColors = [
   "#22d3ee",
   "#a855f7",
 ];
+
+const OFFLINE_QUEUE_KEY = "study-offline-queue-v1";
+const MAX_OFFLINE_QUEUE = 50;
+let isSyncingOfflineQueue = false;
+
+const LIVE_TRACK_STORAGE_KEY = "study-live-track-state-v1";
+
+function safeJSONParse(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+}
+
+function getFocusableElements(container) {
+  if (!container) return [];
+  const selectors = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    "[tabindex]:not([tabindex='-1'])",
+  ].join(",");
+  return Array.from(container.querySelectorAll(selectors)).filter((el) => !el.hasAttribute("disabled"));
+}
+
+function closeConfirmModal(result) {
+  if (!confirmModalEl) return;
+  confirmModalEl.classList.remove("is-open");
+  confirmModalEl.setAttribute("aria-hidden", "true");
+  if (typeof confirmModalCleanup === "function") {
+    confirmModalCleanup();
+  }
+  confirmModalCleanup = null;
+
+  if (confirmModalLastFocused && typeof confirmModalLastFocused.focus === "function") {
+    confirmModalLastFocused.focus();
+  }
+  confirmModalLastFocused = null;
+
+  if (typeof confirmModalResolve === "function") {
+    const resolve = confirmModalResolve;
+    confirmModalResolve = null;
+    resolve(Boolean(result));
+  }
+}
+
+function openConfirmModal({ title, message, confirmText = "Confirm", cancelText = "Cancel" } = {}) {
+  if (!confirmModalEl || !confirmModalTitleEl || !confirmModalMessageEl || !confirmModalCancelBtn || !confirmModalConfirmBtn) {
+    return Promise.resolve(window.confirm(message || "Are you sure?"));
+  }
+
+  if (confirmModalResolve) {
+    closeConfirmModal(false);
+  }
+
+  confirmModalLastFocused = document.activeElement;
+  confirmModalTitleEl.textContent = title || "Confirm";
+  confirmModalMessageEl.textContent = message || "";
+  confirmModalCancelBtn.textContent = cancelText;
+  confirmModalConfirmBtn.textContent = confirmText;
+
+  confirmModalEl.classList.add("is-open");
+  confirmModalEl.setAttribute("aria-hidden", "false");
+
+  const onCancelClick = () => closeConfirmModal(false);
+  const onConfirmClick = () => closeConfirmModal(true);
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeConfirmModal(false);
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = getFocusableElements(confirmModalEl);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const onOverlayClick = (event) => {
+    if (event.target?.hasAttribute?.("data-confirm-close")) {
+      closeConfirmModal(false);
+    }
+  };
+
+  document.addEventListener("keydown", onKeyDown);
+  confirmModalEl.addEventListener("click", onOverlayClick);
+  confirmModalCancelBtn.addEventListener("click", onCancelClick);
+  confirmModalConfirmBtn.addEventListener("click", onConfirmClick);
+  confirmModalCleanup = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    confirmModalEl.removeEventListener("click", onOverlayClick);
+    confirmModalCancelBtn.removeEventListener("click", onCancelClick);
+    confirmModalConfirmBtn.removeEventListener("click", onConfirmClick);
+  };
+
+  return new Promise((resolve) => {
+    confirmModalResolve = resolve;
+    window.setTimeout(() => confirmModalConfirmBtn.focus(), 0);
+  });
+}
+
+function persistLiveTrackState() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const shouldPersist =
+      liveTrackState.status !== "idle" ||
+      Boolean(liveTrackState.subject) ||
+      liveTrackState.elapsedMs > 0 ||
+      Boolean(liveTrackState.startedAt);
+
+    if (!shouldPersist) {
+      localStorage.removeItem(LIVE_TRACK_STORAGE_KEY);
+      return;
+    }
+
+    localStorage.setItem(
+      LIVE_TRACK_STORAGE_KEY,
+      JSON.stringify({
+        v: 1,
+        status: liveTrackState.status,
+        subject: liveTrackState.subject,
+        color: liveTrackState.color,
+        startedAt: liveTrackState.startedAt,
+        elapsedMs: liveTrackState.elapsedMs,
+        mode: liveTrackState.mode,
+        timerDurationMs: liveTrackState.timerDurationMs,
+      })
+    );
+  } catch (error) {
+    // Ignore storage failures (e.g. private browsing / disabled storage).
+  }
+}
+
+function clearPersistedLiveTrackState() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem(LIVE_TRACK_STORAGE_KEY);
+  } catch (error) {
+    // Ignore storage failures.
+  }
+}
+
+function restoreLiveTrackState() {
+  if (typeof localStorage === "undefined") return false;
+  const stored = safeJSONParse(localStorage.getItem(LIVE_TRACK_STORAGE_KEY));
+  if (!stored || stored.v !== 1) return false;
+
+  const validStatus = stored.status === "running" || stored.status === "paused";
+  const validMode = stored.mode === "stopwatch" || stored.mode === "timer";
+  const subject = typeof stored.subject === "string" ? stored.subject.trim() : "";
+  if (!validStatus || !validMode || !subject) {
+    clearPersistedLiveTrackState();
+    return false;
+  }
+
+  const color = normalizeColor(stored.color, defaultSubjectColor);
+  const elapsedMs = Number.isFinite(stored.elapsedMs) && stored.elapsedMs >= 0 ? stored.elapsedMs : 0;
+  const startedAt = Number.isFinite(stored.startedAt) && stored.startedAt > 0 ? stored.startedAt : null;
+  const timerDurationMs =
+    stored.mode === "timer" && Number.isFinite(stored.timerDurationMs) && stored.timerDurationMs > 0
+      ? stored.timerDurationMs
+      : 0;
+
+  clearLiveTrackInterval();
+  liveTrackState.status = stored.status;
+  liveTrackState.subject = subject;
+  liveTrackState.color = color;
+  liveTrackState.mode = stored.mode;
+  liveTrackState.elapsedMs = elapsedMs;
+  liveTrackState.startedAt = startedAt;
+  liveTrackState.timerDurationMs = timerDurationMs;
+  liveTrackState.showSetup = false;
+  liveTrackState.showModePicker = false;
+
+  // If a timer expired while the page was closed, treat it as paused at 0 remaining.
+  const rawElapsed = getLiveTrackElapsedRawMs();
+  if (liveTrackState.mode === "timer" && liveTrackState.timerDurationMs > 0 && rawElapsed >= liveTrackState.timerDurationMs) {
+    liveTrackState.elapsedMs = liveTrackState.timerDurationMs;
+    liveTrackState.startedAt = null;
+    liveTrackState.status = "paused";
+    showMessage(liveTrackMessageEl, "Timer finished! Tap Save to keep it.");
+  }
+
+  if (liveTrackSubjectInput) {
+    liveTrackSubjectInput.value = liveTrackState.subject;
+  }
+  if (liveTrackColorInput) {
+    liveTrackColorInput.value = liveTrackState.color;
+  }
+  if (liveTrackDurationInput) {
+    liveTrackDurationInput.value =
+      liveTrackState.mode === "timer" && liveTrackState.timerDurationMs > 0
+        ? String(Math.round(liveTrackState.timerDurationMs / 60000))
+        : liveTrackDurationInput.defaultValue || liveTrackDurationInput.value;
+  }
+
+  setLiveTrackAccent(liveTrackState.color);
+  updateLiveTrackUI();
+  if (liveTrackState.status === "running") {
+    startLiveTrackInterval();
+  }
+  persistLiveTrackState();
+  return true;
+}
 
 function setDefaultTimes() {
   if (!startTimeInput || !endTimeInput) {
@@ -196,7 +445,13 @@ async function fetchJSON(url, options = {}) {
   const response = await fetch(url, mergedOptions);
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || "Request failed");
+    const error = new Error(message || "Request failed");
+    error.status = response.status;
+    error.url = url;
+    if (response.status === 401 && !isAuthEndpoint(url)) {
+      handleAuthRequired("Session expired. Please sign in again.");
+    }
+    throw error;
   }
   if (response.status === 204) {
     return null;
@@ -222,6 +477,7 @@ function ensureAudioContext() {
 }
 
 function playClickSound(frequency = 1250, duration = 0.06, volume = 0.12) {
+  if (!hasUserGesture) return;
   if (isLiveTrackMuted) return;
   const ctx = ensureAudioContext();
   if (!ctx) {
@@ -339,6 +595,7 @@ function handleLiveTrackTick() {
     clearLiveTrackInterval();
     showMessage(liveTrackMessageEl, "Timer finished! Tap Save to keep it.");
     updateLiveTrackUI();
+    persistLiveTrackState();
   }
 }
 
@@ -378,6 +635,9 @@ function updateLiveTrackUI() {
   if (liveTrackLogBtn) {
     liveTrackLogBtn.disabled = !hasProgress || isSubmitting;
   }
+  if (liveTrackDeleteBtn) {
+    liveTrackDeleteBtn.disabled = status === "idle" || isSubmitting;
+  }
 
   if (liveTrackSelectedModeEl) {
     liveTrackSelectedModeEl.textContent = mode === "timer" ? "Timer" : "Stopwatch";
@@ -399,7 +659,7 @@ function updateLiveTrackUI() {
       liveTrackStatusEl.textContent =
         mode === "timer" ? "Timer in progress." : "Stopwatch running.";
     } else if (status === "paused" && hasProgress) {
-      liveTrackStatusEl.textContent = "Paused — resume or log below.";
+      liveTrackStatusEl.textContent = "Paused — resume or save below.";
     } else if (showModePicker) {
       liveTrackStatusEl.textContent = "Choose stopwatch or timer to continue.";
     } else if (showSetup && mode === "timer") {
@@ -518,6 +778,7 @@ function resetLiveTrackState(options = {}) {
   }
   setLiveTrackAccent(defaultSubjectColor);
   updateLiveTrackUI();
+  clearPersistedLiveTrackState();
 }
 
 function captureLiveTrackElapsed() {
@@ -565,6 +826,7 @@ async function handleLiveTrackStart() {
   setLiveTrackAccent(liveTrackState.color);
   startLiveTrackInterval();
   updateLiveTrackUI();
+  persistLiveTrackState();
 }
 
 function toggleLiveTrackPause() {
@@ -584,6 +846,32 @@ function toggleLiveTrackPause() {
   }
   showMessage(liveTrackMessageEl, "");
   updateLiveTrackUI();
+  persistLiveTrackState();
+}
+
+function handleLiveTrackDelete() {
+  if (liveTrackState.status === "idle" || liveTrackState.isSubmitting) {
+    return;
+  }
+
+  openConfirmModal({
+    title: "Delete live session?",
+    message: "This will discard the current stopwatch/timer. Nothing will be saved.",
+    confirmText: "Delete",
+    cancelText: "Keep it",
+  }).then((confirmed) => {
+    if (!confirmed) return;
+
+    resetLiveTrackState({ preserveMessage: true });
+    setMessageSuccess(liveTrackMessageEl, true);
+    showMessage(liveTrackMessageEl, "Live session deleted.");
+    window.setTimeout(() => {
+      if (liveTrackState.status === "idle") {
+        setMessageSuccess(liveTrackMessageEl, false);
+        showMessage(liveTrackMessageEl, "");
+      }
+    }, 2500);
+  });
 }
 
 async function handleLiveTrackLog() {
@@ -597,6 +885,7 @@ async function handleLiveTrackLog() {
     liveTrackState.status = "paused";
   }
   updateLiveTrackUI();
+  persistLiveTrackState();
 
   const totalMs = getLiveTrackElapsedMs();
   if (totalMs < LIVE_TRACK_MIN_MS) {
@@ -613,6 +902,7 @@ async function handleLiveTrackLog() {
   liveTrackState.isSubmitting = true;
   updateLiveTrackUI();
   showMessage(liveTrackMessageEl, "");
+  setMessageSuccess(liveTrackMessageEl, false);
 
   try {
     const endTime = new Date();
@@ -625,15 +915,15 @@ async function handleLiveTrackLog() {
       startTime: startTime.toISOString(),
       endTime: endTime.toISOString(),
     };
-    await fetchJSON("/api/study-sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    liveTrackMessageEl?.classList.add("success");
-    showMessage(liveTrackMessageEl, "Session saved.");
-    resetLiveTrackState({ preserveMessage: true });
-    await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
+    const result = await sendStudySession(payload, { sourceElement: liveTrackMessageEl });
+    if (result.queued) {
+      resetLiveTrackState({ preserveMessage: true });
+    } else {
+      liveTrackMessageEl?.classList.add("success");
+      showMessage(liveTrackMessageEl, "Session saved.");
+      resetLiveTrackState({ preserveMessage: true });
+      await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
+    }
   } catch (error) {
     console.error("Failed to save live track session", error);
     liveTrackMessageEl?.classList.remove("success");
@@ -654,6 +944,7 @@ function initLiveTrack() {
   liveTrackStartBtn.addEventListener("click", handleLiveTrackStart);
   liveTrackPauseBtn?.addEventListener("click", toggleLiveTrackPause);
   liveTrackLogBtn?.addEventListener("click", handleLiveTrackLog);
+  liveTrackDeleteBtn?.addEventListener("click", handleLiveTrackDelete);
   liveTrackMuteBtn?.addEventListener("click", () => {
     isLiveTrackMuted = !isLiveTrackMuted;
     updateLiveTrackMuteUI();
@@ -704,7 +995,9 @@ if (liveTrackSubjectInput && liveTrackColorInput) {
   });
 }
 setupSubjectSuggestions(liveTrackSubjectInput, liveTrackSubjectSuggestions);
-resetLiveTrackState();
+if (!restoreLiveTrackState()) {
+  resetLiveTrackState();
+}
 }
 
 async function loadSubjects() {
@@ -729,6 +1022,9 @@ async function loadSessions() {
     renderHistory();
     syncSubjectOptions();
     renderSubjects();
+    if (summaryData) {
+      updateTrendChart(getTrendSeries());
+    }
     showMessage(sessionErrorEl, "");
   } catch (error) {
     console.error("Failed to load sessions", error);
@@ -900,7 +1196,7 @@ function renderSummary(summary = summaryData) {
 
   renderSubjectBreakdown(summary.bySubject || {});
   updateSubjectChart(summary.bySubject || {});
-  updateTrendChart(summary.dailyTrend || []);
+  updateTrendChart(getTrendSeries());
 }
 
 function renderStreakChip(streakDays) {
@@ -939,6 +1235,49 @@ function renderTrendModeSelect() {
     .join("");
   const active = options.find((opt) => opt.value === current);
   trendSelectLabel.textContent = active ? active.textContent : "By subject (stacked bar)";
+}
+
+function getTrendRangeLabel(value) {
+  switch (value) {
+    case "14d":
+      return "Last 14 days";
+    case "30d":
+      return "Last 30 days";
+    case "3m":
+      return "Last 3 months";
+    case "6m":
+      return "Last 6 months";
+    case "all":
+      return "All time";
+    default:
+      return "Last 14 days";
+  }
+}
+
+function renderTrendRangeSelect() {
+  if (!trendRangeSelect || !trendRangeMenu || !trendRangeLabel) return;
+  const options = Array.from(trendRangeSelect.options || []);
+  const current = trendRangeSelect.value || "14d";
+  trendRangeMenu.innerHTML = options
+    .map(
+      (opt) =>
+        `<li role="option" data-value="${escapeHTML(opt.value)}" aria-selected="${opt.value === current}">${escapeHTML(
+          opt.textContent || opt.value
+        )}</li>`
+    )
+    .join("");
+  const active = options.find((opt) => opt.value === current);
+  const text = active ? active.textContent : getTrendRangeLabel(current);
+  trendRangeLabel.textContent = text;
+  if (trendRangeTitle) {
+    trendRangeTitle.textContent = text;
+  }
+}
+
+function closeTrendRangeSelect() {
+  if (!trendRangeMenu || !trendRangeToggle) return;
+  trendRangeMenu.classList.remove("is-open");
+  trendRangeToggle.setAttribute("aria-expanded", "false");
 }
 
 function closeTrendSelect() {
@@ -989,7 +1328,7 @@ function renderSubjectBreakdown(bySubject) {
             <span class="subject-dot" style="background-color: ${color}"></span>
             <span>${escapeHTML(name)}</span>
           </div>
-          <span>${minutes} min (${percentage}%)</span>
+          <span>${formatHours(minutes)} (${percentage}%)</span>
         </div>
       `;
     })
@@ -1011,7 +1350,7 @@ function updateSubjectChart(bySubject) {
   }
 
   const labels = entries.map(([name]) => name);
-  const data = entries.map(([, minutes]) => minutes);
+  const data = entries.map(([, minutes]) => minutesToHours(minutes));
   const colors = labels.map((label, index) => getSubjectColor(label, index));
 
   subjectChart = new Chart(subjectChartCanvas, {
@@ -1037,7 +1376,7 @@ function updateSubjectChart(bySubject) {
             label(context) {
               const label = context.label || "";
               const value = context.parsed || 0;
-              return `${label}: ${value} min`;
+              return `${label}: ${formatHoursFromHours(value)}`;
             },
           },
         },
@@ -1046,6 +1385,117 @@ function updateSubjectChart(bySubject) {
       cutout: "62%",
     },
   });
+}
+
+function minutesToHours(value) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+  return minutes / 60;
+}
+
+function formatHoursFromHours(hoursValue) {
+  const hours = Number(hoursValue);
+  if (!Number.isFinite(hours) || hours <= 0) return "0 h";
+  const rounded = hours < 10 ? hours.toFixed(1) : hours.toFixed(0);
+  return `${rounded} h`;
+}
+
+function formatHours(minutesValue) {
+  return formatHoursFromHours(minutesToHours(minutesValue));
+}
+
+function getLocalDayKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTrendRangeStart(todayStart, range) {
+  const start = new Date(todayStart);
+  if (range === "30d") {
+    start.setDate(start.getDate() - 29);
+    return start;
+  }
+  if (range === "3m") {
+    start.setMonth(start.getMonth() - 3);
+    return start;
+  }
+  if (range === "6m") {
+    start.setMonth(start.getMonth() - 6);
+    return start;
+  }
+  if (range === "all") {
+    return null;
+  }
+  start.setDate(start.getDate() - 13);
+  return start;
+}
+
+function getTrendSeries() {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const activeSubjectIDs = new Set(
+    (Array.isArray(subjects) ? subjects : [])
+      .map((subject) => subject?.id)
+      .filter(Boolean)
+  );
+  const activeSubjectNames = new Set(
+    (Array.isArray(subjects) ? subjects : [])
+      .map((subject) => String(subject?.name || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  const relevantSessions = (Array.isArray(sessions) ? sessions : []).filter((session) => {
+    const subjectID = String(session?.subjectId || "");
+    if (subjectID && activeSubjectIDs.size > 0) {
+      return activeSubjectIDs.has(subjectID);
+    }
+    const subjectName = String(session?.subject || "").trim().toLowerCase();
+    return subjectName && activeSubjectNames.has(subjectName);
+  });
+
+  let start = getTrendRangeStart(todayStart, trendRange);
+  if (!start) {
+    const minDate = relevantSessions.reduce((acc, session) => {
+      const d = session?.startTime ? new Date(session.startTime) : null;
+      if (!d || Number.isNaN(d.getTime())) return acc;
+      const day = new Date(d);
+      day.setHours(0, 0, 0, 0);
+      return !acc || day < acc ? day : acc;
+    }, null);
+    start = minDate || new Date(todayStart);
+  }
+
+  const buckets = new Map();
+  for (let cursor = new Date(start); cursor <= todayStart; cursor.setDate(cursor.getDate() + 1)) {
+    const key = getLocalDayKey(cursor);
+    buckets.set(key, { date: key, totalMinutes: 0, sessionCount: 0, averageMinutes: 0, bySubject: {} });
+  }
+
+  relevantSessions.forEach((session) => {
+    const startTime = session?.startTime ? new Date(session.startTime) : null;
+    if (!startTime || Number.isNaN(startTime.getTime())) return;
+    const dayKey = getLocalDayKey(startTime);
+    const entry = buckets.get(dayKey);
+    if (!entry) return;
+    const minutes = Number(session?.durationMinutes || 0);
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    const name = String(session?.subject || "").trim() || "Unknown";
+    entry.totalMinutes += minutes;
+    entry.sessionCount += 1;
+    entry.bySubject[name] = (entry.bySubject[name] || 0) + minutes;
+  });
+
+  buckets.forEach((entry) => {
+    entry.averageMinutes = entry.sessionCount > 0 ? entry.totalMinutes / entry.sessionCount : 0;
+    if (!entry.bySubject || Object.keys(entry.bySubject).length === 0) {
+      delete entry.bySubject;
+    }
+  });
+
+  return Array.from(buckets.values());
 }
 
 function updateTrendChart(trend) {
@@ -1063,6 +1513,15 @@ function updateTrendChart(trend) {
   }
 
   const labels = trend.map((entry) => formatTrendLabel(entry.date));
+
+  // When rendering long ranges, keep the chart readable by allowing horizontal scroll.
+  // We do this by giving the canvas a larger CSS width proportional to the number of buckets.
+  const pxPerBucket = 44;
+  const minWidth = trendChartCanvas.parentElement?.clientWidth || 0;
+  const desiredWidth = Math.min(Math.max(labels.length * pxPerBucket, minWidth, 0), 20000);
+  if (desiredWidth > 0) {
+    trendChartCanvas.style.width = `${desiredWidth}px`;
+  }
 
   const subjectsSet = new Set();
   trend.forEach((entry) => {
@@ -1084,7 +1543,7 @@ function updateTrendChart(trend) {
       const color = getSubjectColor(name, index);
       const data = trend.map((entry) => {
         if (entry.bySubject && typeof entry.bySubject[name] === "number") {
-          return entry.bySubject[name];
+          return minutesToHours(entry.bySubject[name]);
         }
         return 0;
       });
@@ -1093,16 +1552,19 @@ function updateTrendChart(trend) {
         data,
         backgroundColor: color,
         stack: "trend",
-        borderRadius: 6,
+        categoryPercentage: 0.92,
+        barPercentage: 0.92,
+        maxBarThickness: 34,
+        borderRadius: 0,
         borderSkipped: false,
       };
     });
   } else if (mode === "line") {
     chartType = "line";
-    const data = trend.map((entry) => entry.totalMinutes ?? 0);
+    const data = trend.map((entry) => minutesToHours(entry.totalMinutes ?? 0));
     datasets = [
       {
-        label: "Minutes",
+        label: "Hours",
         data,
         borderColor: "#6366f1",
         backgroundColor: "rgba(99, 102, 241, 0.2)",
@@ -1114,13 +1576,16 @@ function updateTrendChart(trend) {
     ];
   } else {
     chartType = "bar";
-    const data = trend.map((entry) => entry.totalMinutes ?? 0);
+    const data = trend.map((entry) => minutesToHours(entry.totalMinutes ?? 0));
     datasets = [
       {
-        label: "Minutes",
+        label: "Hours",
         data,
         backgroundColor: "#6366f1",
-        borderRadius: 6,
+        categoryPercentage: 0.92,
+        barPercentage: 0.92,
+        maxBarThickness: 34,
+        borderRadius: 0,
         borderSkipped: false,
         stack: "trend",
       },
@@ -1145,8 +1610,8 @@ function updateTrendChart(trend) {
           callbacks: {
             label(context) {
               const value = chartType === "line" ? context.parsed.y || 0 : context.parsed.y || 0;
-              const label = context.dataset.label || "Minutes";
-              return `${label}: ${value} min`;
+              const label = context.dataset.label || "Hours";
+              return `${label}: ${formatHoursFromHours(value)}`;
             },
           },
         },
@@ -1155,7 +1620,11 @@ function updateTrendChart(trend) {
         y: {
           beginAtZero: true,
           grid: { color: "rgba(148, 163, 184, 0.12)" },
-          ticks: { stepSize: 10 },
+          ticks: {
+            callback(value) {
+              return `${value}h`;
+            },
+          },
         },
         x: {
           grid: { display: false },
@@ -1357,6 +1826,182 @@ function showMessage(element, message = "") {
   }
 }
 
+function setMessageSuccess(element, isSuccess) {
+  if (!element) return;
+  element.classList.toggle("success", Boolean(isSuccess));
+}
+
+function isOnline() {
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine;
+}
+
+function isLikelyOfflineError(error) {
+  if (!isOnline()) return true;
+  const message = (error?.message || "").toLowerCase();
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("offline") ||
+    message.includes("load failed")
+  );
+}
+
+function isAuthError(error) {
+  return Number(error?.status) === 401;
+}
+
+function isAuthEndpoint(url) {
+  const raw = String(url || "");
+  return (
+    raw.includes("/api/auth/login") ||
+    raw.includes("/api/auth/register") ||
+    raw.includes("/api/auth/google") ||
+    raw.includes("/api/auth/logout")
+  );
+}
+
+function handleAuthRequired(message = "Session expired. Please sign in again.") {
+  if (loginErrorEl) {
+    showMessage(loginErrorEl, message);
+  }
+  setAuthenticated(null);
+}
+
+function loadOfflineQueue() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("Unable to read offline queue", error);
+    return [];
+  }
+}
+
+function persistOfflineQueue(queue) {
+  try {
+    const trimmed = queue.slice(Math.max(queue.length - MAX_OFFLINE_QUEUE, 0));
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(trimmed));
+  } catch (error) {
+    console.warn("Unable to persist offline queue", error);
+  }
+}
+
+function makeQueueId() {
+  const randomPart = Math.random().toString(16).slice(2);
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `queue-${Date.now()}-${randomPart}`;
+}
+
+function showOfflineQueuedMessage(targetElement) {
+  if (!targetElement) return;
+  setMessageSuccess(targetElement, true);
+  showMessage(targetElement, "Saved offline. Will sync when back online.");
+}
+
+async function enqueueOfflineRequest(request) {
+  const queue = loadOfflineQueue();
+  queue.push({
+    ...request,
+    id: makeQueueId(),
+    createdAt: Date.now(),
+    attempts: request.attempts || 0,
+  });
+  persistOfflineQueue(queue);
+}
+
+async function flushOfflineQueue() {
+  if (isSyncingOfflineQueue || !isOnline() || !isAuthenticated) return;
+  const queue = loadOfflineQueue();
+  if (!queue.length) return;
+
+  isSyncingOfflineQueue = true;
+  let syncedCount = 0;
+  let remaining = [];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index];
+    if (!isOnline()) {
+      remaining = queue.slice(index);
+      break;
+    }
+    try {
+      await fetchJSON(item.url, {
+        method: item.method,
+        headers: item.headers,
+        body: item.body,
+      });
+      syncedCount += 1;
+    } catch (error) {
+      if (isAuthError(error)) {
+        remaining = queue.slice(index);
+        handleAuthRequired("Please sign in again to sync saved sessions.");
+        break;
+      }
+      if (isLikelyOfflineError(error)) {
+        remaining = queue.slice(index);
+        break;
+      }
+      const attempts = (item.attempts || 0) + 1;
+      if (attempts < 3) {
+        remaining.push({ ...item, attempts });
+      } else {
+        console.error("Dropping offline request after repeated failures", error);
+      }
+    }
+  }
+
+  persistOfflineQueue(remaining);
+  isSyncingOfflineQueue = false;
+
+  if (syncedCount > 0) {
+    await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
+  }
+}
+
+async function sendStudySession(payload, options = {}) {
+  const { sessionId = null, sourceElement = null } = options;
+  const url = sessionId ? `/api/study-sessions/${sessionId}` : "/api/study-sessions";
+  const method = sessionId ? "PUT" : "POST";
+  const request = {
+    url,
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "study-session",
+  };
+
+  if (!isOnline()) {
+    await enqueueOfflineRequest(request);
+    showOfflineQueuedMessage(sourceElement);
+    return { queued: true };
+  }
+
+  try {
+    await fetchJSON(url, request);
+    return { queued: false };
+  } catch (error) {
+    if (isAuthError(error)) {
+      await enqueueOfflineRequest(request);
+      if (sourceElement) {
+        setMessageSuccess(sourceElement, false);
+        showMessage(sourceElement, "Please sign in again to sync this save.");
+      }
+      handleAuthRequired("Session expired. Please sign in again.");
+      return { queued: true, authRequired: true };
+    }
+    if (isLikelyOfflineError(error)) {
+      await enqueueOfflineRequest(request);
+      showOfflineQueuedMessage(sourceElement);
+      return { queued: true };
+    }
+    throw error;
+  }
+}
+
 function setAuthenticated(user) {
   currentUser = user;
   isAuthenticated = Boolean(user);
@@ -1503,6 +2148,7 @@ async function handleSessionSubmit(event) {
     return;
   }
   showMessage(sessionErrorEl, "");
+  setMessageSuccess(sessionErrorEl, false);
 
   const subjectInput = document.getElementById("subject");
   const notesInput = document.getElementById("notes");
@@ -1537,19 +2183,22 @@ async function handleSessionSubmit(event) {
     ? `/api/study-sessions/${editingSessionId}`
     : "/api/study-sessions";
 
-  const method = editingSessionId ? "PUT" : "POST";
-
   try {
-    await fetchJSON(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    const result = await sendStudySession(payload, {
+      sessionId: editingSessionId,
+      sourceElement: sessionErrorEl,
     });
-
-    resetSessionForm();
-    await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
+    if (result.queued) {
+      setMessageSuccess(sessionErrorEl, true);
+      showMessage(sessionErrorEl, "Saved offline. Will sync when back online.");
+      resetSessionForm();
+    } else {
+      resetSessionForm();
+      await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
+    }
   } catch (error) {
     console.error("Failed to submit session", error);
+    setMessageSuccess(sessionErrorEl, false);
     showMessage(sessionErrorEl, error.message);
   }
 }
@@ -1750,7 +2399,13 @@ async function saveInlineSubjectEdit(id) {
 }
 
 async function deleteSession(id) {
-  if (!window.confirm("Delete this study session?")) return;
+  const confirmed = await openConfirmModal({
+    title: "Delete session?",
+    message: "This will permanently delete the session.",
+    confirmText: "Delete",
+    cancelText: "Cancel",
+  });
+  if (!confirmed) return;
   try {
     await fetchJSON(`/api/study-sessions/${id}`, { method: "DELETE" });
     await Promise.all([loadSessions(), loadSummary(), loadSubjects()]);
@@ -1761,13 +2416,13 @@ async function deleteSession(id) {
 }
 
 async function deleteSubject(id) {
-  if (
-    !window.confirm(
-      "Delete this subject? Existing sessions will remain unchanged."
-    )
-  ) {
-    return;
-  }
+  const confirmed = await openConfirmModal({
+    title: "Delete subject?",
+    message: "Existing sessions will remain unchanged.",
+    confirmText: "Delete",
+    cancelText: "Cancel",
+  });
+  if (!confirmed) return;
   try {
     await fetchJSON(`/api/subjects/${id}`, { method: "DELETE" });
     if (editingSubjectId === id) {
@@ -1970,7 +2625,7 @@ if (trendModeSelect) {
     trendChartMode = trendModeSelect.value;
     localStorage.setItem("trendChartMode", trendChartMode);
     renderTrendModeSelect();
-    updateTrendChart(summaryData?.dailyTrend || []);
+    updateTrendChart(getTrendSeries());
   });
 }
 
@@ -1994,7 +2649,7 @@ if (trendSelectToggle && trendSelectMenu && trendModeSelect) {
     trendChartMode = value;
     localStorage.setItem("trendChartMode", trendChartMode);
     renderTrendModeSelect();
-    updateTrendChart(summaryData?.dailyTrend || []);
+    updateTrendChart(getTrendSeries());
     closeTrendSelect();
   });
 
@@ -2008,6 +2663,55 @@ if (trendSelectToggle && trendSelectMenu && trendModeSelect) {
       trendSelectMenu.classList.contains("is-open")
     ) {
       closeTrendSelect();
+    }
+  });
+}
+
+if (trendRangeSelect) {
+  trendRangeSelect.value = trendRange;
+  renderTrendRangeSelect();
+  trendRangeSelect.addEventListener("change", () => {
+    trendRange = trendRangeSelect.value || "14d";
+    localStorage.setItem("trendRange", trendRange);
+    renderTrendRangeSelect();
+    updateTrendChart(getTrendSeries());
+  });
+}
+
+if (trendRangeToggle && trendRangeMenu && trendRangeSelect) {
+  trendRangeToggle.addEventListener("click", () => {
+    const isOpen = trendRangeMenu.classList.contains("is-open");
+    if (isOpen) {
+      closeTrendRangeSelect();
+    } else {
+      trendRangeMenu.classList.add("is-open");
+      trendRangeToggle.setAttribute("aria-expanded", "true");
+    }
+  });
+
+  trendRangeMenu.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const value = target.dataset.value;
+    if (!value) return;
+    trendRangeSelect.value = value;
+    trendRange = value;
+    localStorage.setItem("trendRange", trendRange);
+    renderTrendRangeSelect();
+    updateTrendChart(getTrendSeries());
+    closeTrendRangeSelect();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!trendRangeMenu || !trendRangeToggle) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (
+      !trendRangeMenu.contains(target) &&
+      !trendRangeToggle.contains(target) &&
+      trendRangeMenu.classList.contains("is-open")
+    ) {
+      closeTrendRangeSelect();
     }
   });
 }
@@ -2034,6 +2738,7 @@ if (loginForm) {
       await loadCurrentUser();
       if (isAuthenticated) {
         await loadAuthedData();
+        await flushOfflineQueue();
       }
     } catch (error) {
       showMessage(loginErrorEl, error.message || "Login failed");
@@ -2055,6 +2760,7 @@ if (registerForm) {
       await loadCurrentUser();
       if (isAuthenticated) {
         await loadAuthedData();
+        await flushOfflineQueue();
       }
     } catch (error) {
       showMessage(registerErrorEl, error.message || "Registration failed");
@@ -2092,6 +2798,7 @@ async function initialize() {
   await loadCurrentUser();
   if (isAuthenticated) {
     await loadAuthedData();
+    await flushOfflineQueue();
   } else {
     activateView("auth", { skipSave: true, force: true });
   }
@@ -2102,4 +2809,15 @@ try {
 } catch (error) {
   console.error("Failed to initialize live tracking UI", error);
 }
+
+window.addEventListener("online", () => {
+  flushOfflineQueue();
+});
+
+window.addEventListener("offline", () => {
+  if (liveTrackMessageEl) {
+    setMessageSuccess(liveTrackMessageEl, true);
+    showMessage(liveTrackMessageEl, "Offline. Changes will queue until you're back online.");
+  }
+});
 initialize();
